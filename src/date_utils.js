@@ -8,8 +8,8 @@ const MILLISECOND = 'millisecond';
 
 export default {
     parse_duration(duration) {
-        const regex = /([0-9]+)(y|m|d|h|min|s|ms)/gm;
-        const matches = regex.exec(duration);
+        const regex = /([0-9]+)(y|m|d|h|min|s|ms)/;
+        const matches = duration.match(regex);
         if (matches !== null) {
             if (matches[2] === 'y') {
                 return { duration: parseInt(matches[1]), scale: `year` };
@@ -165,7 +165,7 @@ export default {
                     days,
                     months,
                     years,
-                }[scale] * 100,
+                }[scale] * 100
             ) / 100
         );
     },
