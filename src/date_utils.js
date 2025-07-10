@@ -8,7 +8,7 @@ const MILLISECOND = 'millisecond';
 
 export default {
     parse_duration(duration) {
-        const regex = /([0-9]+)(y|m|d|h|min|s|ms)/;
+        const regex = /([0-9]+)(min|ms|y|m|d|h|s)/;
         const matches = duration.match(regex);
         if (matches !== null) {
             if (matches[2] === 'y') {
@@ -27,6 +27,10 @@ export default {
                 return { duration: parseInt(matches[1]), scale: `millisecond` };
             }
         }
+        console.warn(
+            `invalid duration "${duration}", defaulting to 1 day`
+        )
+        return { duration: 1, scale: `day` };
     },
     parse(date, date_separator = '-', time_separator = /[.:]/) {
         if (date instanceof Date) {
