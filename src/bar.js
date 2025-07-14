@@ -183,14 +183,14 @@ export default class Bar {
     calculate_progress_width() {
         const width = this.$bar.getWidth();
         const ignored_end = this.x + width;
-        const total_ignored_area =
+        const total_ignored_width =
             this.gantt.config.ignored_positions.reduce((acc, val) => {
                 return acc + (val >= this.x && val < ignored_end);
             }, 0) * this.gantt.config.column_width;
         
         // Calculate progress based on working area (non-ignored portions)
-        const working_area = Math.max(0, width - total_ignored_area);
-        let progress_width = (working_area * this.task.progress) / 100;
+        const working_width = Math.max(0, width - total_ignored_width);
+        let progress_width = (working_width * this.task.progress) / 100;
         
         const progress_end = this.x + progress_width;
         const total_ignored_progress =
@@ -547,11 +547,11 @@ export default class Bar {
     compute_progress() {
         this.progress_width = this.$bar_progress.getWidth();
         this.x = this.$bar_progress.getBBox().x;
-        const progress_area = this.x + this.progress_width;
+        const progress_total_width = this.x + this.progress_width;
         const progress =
             this.progress_width -
             this.gantt.config.ignored_positions.reduce((acc, val) => {
-                return acc + (val >= this.x && val <= progress_area);
+                return acc + (val >= this.x && val <= progress_total_width);
             }, 0) *
                 this.gantt.config.column_width;
         if (progress < 0) return 0;
