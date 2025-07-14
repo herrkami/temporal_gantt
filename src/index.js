@@ -250,8 +250,27 @@ export default class Gantt {
         let { duration, scale } = date_utils.parse_duration(mode.step);
         this.config.step = duration;
         this.config.unit = scale;
+        
+        // Validate step duration
+        if (duration <= 0) {
+            console.warn(`Invalid step duration: ${duration} ${scale}. Using default step of 1 day.`);
+            this.config.step = 1;
+            this.config.unit = 'day';
+        }
+        
+        // Validate step_ms if provided
+        if (mode.step_ms !== undefined && mode.step_ms <= 0) {
+            console.warn(`Invalid step_ms: ${mode.step_ms}. Should be positive milliseconds.`);
+        }
         this.config.column_width =
             this.options.column_width || mode.column_width || 45;
+        
+        // Validate column width
+        if (this.config.column_width <= 0) {
+            console.warn(`Invalid column width: ${this.config.column_width}. Using default value of 45.`);
+            this.config.column_width = 45;
+        }
+        
         this.$container.style.setProperty(
             '--gv-column-width',
             this.config.column_width + 'px',
@@ -330,12 +349,10 @@ export default class Gantt {
         let cur_date = this.gantt_start;
         this.dates = [cur_date];
 
+        // Use millisecond precision for date iteration
+        const step_ms = this.config.view_mode.step_ms;
         while (cur_date < this.gantt_end) {
-            cur_date = date_utils.add(
-                cur_date,
-                this.config.step,
-                this.config.unit,
-            );
+            cur_date = new Date(cur_date.getTime() + step_ms);
             this.dates.push(cur_date);
         }
     }
@@ -610,7 +627,7 @@ export default class Gantt {
             for (
                 let d = new Date(this.gantt_start);
                 d <= this.gantt_end;
-                d.setDate(d.getDate() + 1)
+                d = new Date(d.getTime() + 24 * 60 * 60 * 1000)
             ) {
                 if (
                     this.config.ignored_dates.find(
@@ -672,14 +689,10 @@ export default class Gantt {
         const [_, el] = res;
         el.classList.add('current-date-highlight');
 
-        const diff_in_units = date_utils.diff(
-            new Date(),
-            this.gantt_start,
-            this.config.unit,
-        );
+        const diff_in_ms = new Date().getTime() - this.gantt_start.getTime();
+        const step_ms = this.config.view_mode.step_ms;
 
-        const left =
-            (diff_in_units / this.config.step) * this.config.column_width;
+        const left = (diff_in_ms / step_ms) * this.config.column_width;
 
         this.$current_highlight = this.create_el({
             top: this.config.header_height,
@@ -715,7 +728,7 @@ export default class Gantt {
         for (
             let d = new Date(this.gantt_start);
             d <= this.gantt_end;
-            d.setDate(d.getDate() + 1)
+            d = new Date(d.getTime() + 24 * 60 * 60 * 1000)
         ) {
             if (
                 !this.config.ignored_dates.find(
@@ -917,32 +930,26 @@ export default class Gantt {
             date = date_utils.parse(date);
         }
 
-        // Weird bug where infinite padding results in one day offset in scroll
-        // Related to header-body displacement
-        const units_since_first_task = date_utils.diff(
-            date,
-            this.gantt_start,
-            this.config.unit,
-        );
+        // Use millisecond precision for scroll position
+        const ms_since_first_task = date.getTime() - this.gantt_start.getTime();
+        const step_ms = this.config.view_mode.step_ms;
         const scroll_pos =
-            (units_since_first_task / this.config.step) *
-            this.config.column_width;
+            (ms_since_first_task / step_ms) * this.config.column_width;
 
         this.$container.scrollTo({
             left: scroll_pos - this.config.column_width / 6,
             behavior: 'smooth',
         });
 
-        // Calculate current scroll position's upper text
+        // Calculate current scroll position's upper text using milliseconds
         if (this.$current) {
             this.$current.classList.remove('current-upper');
         }
 
-        this.current_date = date_utils.add(
-            this.gantt_start,
-            this.$container.scrollLeft / this.config.column_width,
-            this.config.unit,
-        );
+        const scroll_ms =
+            (this.$container.scrollLeft / this.config.column_width) *
+            this.config.view_mode.step_ms;
+        this.current_date = new Date(this.gantt_start.getTime() + scroll_ms);
 
         let current_upper = this.config.view_mode.upper_text(
             this.current_date,
@@ -953,12 +960,13 @@ export default class Gantt {
             (el) => el.textContent === current_upper,
         );
 
-        // Recalculate
-        this.current_date = date_utils.add(
-            this.gantt_start,
-            (this.$container.scrollLeft + $el.clientWidth) /
-                this.config.column_width,
-            this.config.unit,
+        // Recalculate using milliseconds
+        const adjusted_scroll_ms =
+            ((this.$container.scrollLeft + $el.clientWidth) /
+                this.config.column_width) *
+            this.config.view_mode.step_ms;
+        this.current_date = new Date(
+            this.gantt_start.getTime() + adjusted_scroll_ms,
         );
         current_upper = this.config.view_mode.upper_text(
             this.current_date,
@@ -1191,12 +1199,12 @@ export default class Gantt {
                 dx = e.currentTarget.scrollLeft - x_on_scroll_start;
             }
 
-            // Calculate current scroll position's upper text
-            this.current_date = date_utils.add(
-                this.gantt_start,
+            // Calculate current scroll position's upper text using milliseconds
+            const scroll_ms =
                 (e.currentTarget.scrollLeft / this.config.column_width) *
-                    this.config.step,
-                this.config.unit,
+                this.config.view_mode.step_ms;
+            this.current_date = new Date(
+                this.gantt_start.getTime() + scroll_ms,
             );
 
             let current_upper = this.config.view_mode.upper_text(
@@ -1208,13 +1216,13 @@ export default class Gantt {
                 (el) => el.textContent === current_upper,
             );
 
-            // Recalculate for smoother experience
-            this.current_date = date_utils.add(
-                this.gantt_start,
+            // Recalculate for smoother experience using milliseconds
+            const adjusted_scroll_ms =
                 ((e.currentTarget.scrollLeft + $el.clientWidth) /
                     this.config.column_width) *
-                    this.config.step,
-                this.config.unit,
+                this.config.view_mode.step_ms;
+            this.current_date = new Date(
+                this.gantt_start.getTime() + adjusted_scroll_ms,
             );
             current_upper = this.config.view_mode.upper_text(
                 this.current_date,
@@ -1435,28 +1443,38 @@ export default class Gantt {
     }
 
     get_snap_position(dx, ox) {
-        let unit_length = 1;
+        let snap_ms = this.config.view_mode.step_ms;
         const default_snap =
             this.options.snap_at || this.config.view_mode.snap_at || '1d';
 
         if (default_snap !== 'unit') {
             const { duration, scale } = date_utils.parse_duration(default_snap);
-            unit_length =
-                date_utils.convert_scales(this.config.view_mode.step, scale) /
-                duration;
+            // Convert snap duration to milliseconds
+            const scale_ms = {
+                second: 1000,
+                minute: 60 * 1000,
+                hour: 60 * 60 * 1000,
+                day: 24 * 60 * 60 * 1000,
+                week: 7 * 24 * 60 * 60 * 1000,
+                month: 30 * 24 * 60 * 60 * 1000,
+                year: 365 * 24 * 60 * 60 * 1000,
+            };
+            snap_ms = duration * (scale_ms[scale] || scale_ms['day']);
         }
 
-        const rem = dx % (this.config.column_width / unit_length);
+        // Convert pixel delta to milliseconds
+        const ms_per_pixel =
+            this.config.view_mode.step_ms / this.config.column_width;
+        const ms_delta = dx * ms_per_pixel;
 
-        let final_dx =
-            dx -
-            rem +
-            (rem < (this.config.column_width / unit_length) * 2
-                ? 0
-                : this.config.column_width / unit_length);
-        let final_pos = ox + final_dx;
+        // Snap to nearest time unit
+        const snapped_ms = Math.round(ms_delta / snap_ms) * snap_ms;
 
-        const drn = final_dx > 0 ? 1 : -1;
+        // Convert back to pixels
+        const snapped_dx = snapped_ms / ms_per_pixel;
+        let final_pos = ox + snapped_dx;
+
+        const drn = snapped_dx > 0 ? 1 : -1;
         let ignored_regions = this.get_ignored_region(final_pos, drn);
         while (ignored_regions.length) {
             final_pos += this.config.column_width * drn;

@@ -17,6 +17,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Hour',
         padding: '7d',
         step: '1h',
+        step_ms: 60 * 60 * 1000, // 1 hour in milliseconds
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -29,6 +30,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Quarter Day',
         padding: '7d',
         step: '6h',
+        step_ms: 6 * 60 * 60 * 1000, // 6 hours in milliseconds
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -41,6 +43,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Half Day',
         padding: '14d',
         step: '12h',
+        step_ms: 12 * 60 * 60 * 1000, // 12 hours in milliseconds
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -56,6 +59,7 @@ const DEFAULT_VIEW_MODES = [
         padding: '7d',
         date_format: 'YYYY-MM-DD',
         step: '1d',
+        step_ms: 24 * 60 * 60 * 1000, // 1 day in milliseconds
         lower_text: (d, ld, lang) =>
             !ld || d.getDate() !== ld.getDate()
                 ? date_utils.format(d, 'D', lang)
@@ -70,6 +74,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Week',
         padding: '1m',
         step: '7d',
+        step_ms: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
         date_format: 'YYYY-MM-DD',
         column_width: 140,
         lower_text: formatWeek,
@@ -84,6 +89,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Month',
         padding: '2m',
         step: '1m',
+        step_ms: 30 * 24 * 60 * 60 * 1000, // Approximate month (30 days) in milliseconds
         column_width: 120,
         date_format: 'YYYY-MM',
         lower_text: 'MMMM',
@@ -98,6 +104,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Year',
         padding: '2y',
         step: '1y',
+        step_ms: 365 * 24 * 60 * 60 * 1000, // Approximate year (365 days) in milliseconds
         column_width: 120,
         date_format: 'YYYY',
         upper_text: (d, ld, lang) =>
@@ -130,20 +137,50 @@ const DEFAULT_OPTIONS = {
         if (ctx.task.description) ctx.set_subtitle(ctx.task.description);
         else ctx.set_subtitle('');
 
-        const start_date = date_utils.format(
+        // Format smart start and end times showing only non-zero units
+        const start_time = date_utils.format_smart_datetime(ctx.task._start, {
+            lang: ctx.chart.options.language,
+            showMilliseconds: false, // Hide milliseconds for cleaner display
+            maxTimeUnits: 3, // Show up to 3 time units
+        });
+        const end_time = date_utils.format_smart_datetime(ctx.task._end, {
+            lang: ctx.chart.options.language,
+            showMilliseconds: false, // Hide milliseconds for cleaner display
+            maxTimeUnits: 3, // Show up to 3 time units
+        });
+
+        // Calculate precise duration using millisecond precision
+        const precise_duration = date_utils.format_duration_between_dates(
             ctx.task._start,
-            'MMM D',
-            ctx.chart.options.language,
-        );
-        const end_date = date_utils.format(
-            date_utils.add(ctx.task._end, -1, 'second'),
-            'MMM D',
-            ctx.chart.options.language,
+            ctx.task._end,
+            { showMilliseconds: false, maxUnits: 4 }, // Show up to 4 units, no milliseconds for readability
         );
 
-        ctx.set_details(
-            `${start_date} - ${end_date} (${ctx.task.actual_duration} days${ctx.task.ignored_duration ? ' + ' + ctx.task.ignored_duration + ' excluded' : ''})<br/>Progress: ${Math.floor(ctx.task.progress * 100) / 100}%`,
+        // Calculate working duration (excluding ignored periods)
+        const working_duration = date_utils.format_duration(
+            ctx.task.actual_duration * 24 * 60 * 60 * 1000, // Convert days to milliseconds
+            { showMilliseconds: false, maxUnits: 4 },
         );
+
+        const ignored_duration = ctx.task.ignored_duration
+            ? date_utils.format_duration(
+                  ctx.task.ignored_duration * 24 * 60 * 60 * 1000,
+                  { showMilliseconds: false, maxUnits: 3 },
+              )
+            : null;
+
+        let details = `<strong>Start:</strong> ${start_time}<br/>`;
+        details += `<strong>End:</strong> ${end_time}<br/>`;
+        details += `<strong>Total Duration:</strong> ${precise_duration}<br/>`;
+        details += `<strong>Working Duration:</strong> ${working_duration}`;
+
+        if (ignored_duration) {
+            details += `<br/><strong>Excluded Time:</strong> ${ignored_duration}`;
+        }
+
+        details += `<br/><strong>Progress:</strong> ${Math.floor(ctx.task.progress * 100) / 100}%`;
+
+        ctx.set_details(details);
     },
     popup_on: 'click',
     readonly_progress: false,

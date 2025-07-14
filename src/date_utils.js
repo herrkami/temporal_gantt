@@ -27,9 +27,7 @@ export default {
                 return { duration: parseInt(matches[1]), scale: `millisecond` };
             }
         }
-        console.warn(
-            `invalid duration "${duration}", defaulting to 1 day`
-        )
+        console.warn(`invalid duration "${duration}", defaulting to 1 day`);
         return { duration: 1, scale: `day` };
     },
     parse(date, date_separator = '-', time_separator = /[.:]/) {
@@ -169,7 +167,7 @@ export default {
                     days,
                     months,
                     years,
-                }[scale] * 100
+                }[scale] * 100,
             ) / 100
         );
     },
@@ -276,6 +274,185 @@ export default {
 
     get_days_in_year(date) {
         return date.getFullYear() % 4 ? 365 : 366;
+    },
+
+    /**
+     * Formats a duration in milliseconds into a human-readable string
+     * Shows only non-zero units in descending order: years, months, days, hours, minutes, seconds, milliseconds
+     * @param {number} ms - Duration in milliseconds
+     * @param {object} options - Formatting options
+     * @returns {string} Formatted duration string
+     */
+    format_duration(ms, options = {}) {
+        const {
+            showMilliseconds = true,
+            maxUnits = null, // Maximum number of units to show
+            shortForm = false, // Use short form (1y 2d) vs long form (1 year 2 days)
+        } = options;
+
+        if (ms === 0) return shortForm ? '0ms' : '0 milliseconds';
+        if (ms < 0) return '-' + this.format_duration(-ms, options);
+
+        const units = [
+            { name: 'year', short: 'y', ms: 365 * 24 * 60 * 60 * 1000 },
+            { name: 'month', short: 'mo', ms: 30 * 24 * 60 * 60 * 1000 },
+            { name: 'day', short: 'd', ms: 24 * 60 * 60 * 1000 },
+            { name: 'hour', short: 'h', ms: 60 * 60 * 1000 },
+            { name: 'minute', short: 'min', ms: 60 * 1000 },
+            { name: 'second', short: 's', ms: 1000 },
+        ];
+
+        if (showMilliseconds) {
+            units.push({ name: 'millisecond', short: 'ms', ms: 1 });
+        }
+
+        const parts = [];
+        let remainingMs = ms;
+
+        for (const unit of units) {
+            const count = Math.floor(remainingMs / unit.ms);
+            if (count > 0) {
+                const label = shortForm
+                    ? unit.short
+                    : count === 1
+                      ? unit.name
+                      : unit.name + 's';
+                const separator = shortForm ? '' : ' ';
+                parts.push(`${count}${separator}${label}`);
+                remainingMs -= count * unit.ms;
+            }
+
+            // Stop if we've reached the maximum number of units
+            if (maxUnits && parts.length >= maxUnits) {
+                break;
+            }
+        }
+
+        // If no parts were added (very small duration) and we're not showing milliseconds
+        if (parts.length === 0 && !showMilliseconds) {
+            return shortForm ? '<1s' : 'less than 1 second';
+        }
+
+        return parts.join(shortForm ? ' ' : ', ');
+    },
+
+    /**
+     * Formats a date and time with precise timestamp including milliseconds
+     * @param {Date} date - Date to format
+     * @param {string} lang - Language for formatting
+     * @returns {string} Formatted date and time string
+     */
+    format_precise_datetime(date, lang = 'en') {
+        const dateStr = this.format(date, 'MMM D, YYYY', lang);
+        const timeStr = this.format(date, 'HH:mm:ss.SSS', lang);
+        return `${dateStr} at ${timeStr}`;
+    },
+
+    /**
+     * Formats a date and time intelligently, showing only non-zero time units
+     * Similar to duration formatting but for absolute timestamps
+     * @param {Date} date - Date to format
+     * @param {object} options - Formatting options
+     * @returns {string} Smart formatted date and time string
+     */
+    format_smart_datetime(date, options = {}) {
+        const {
+            lang = 'en',
+            showMilliseconds = true,
+            showSeconds = true,
+            showDate = true,
+            maxTimeUnits = null,
+        } = options;
+
+        const dateStr = this.format(date, 'MMM D, YYYY', lang);
+
+        // Extract time components
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const seconds = date.getSeconds();
+        const milliseconds = date.getMilliseconds();
+
+        // Build time parts array (only non-zero values)
+        const timeParts = [];
+
+        if (hours > 0) {
+            timeParts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
+        }
+
+        if (minutes > 0) {
+            timeParts.push(
+                `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`,
+            );
+        }
+
+        if (showSeconds && seconds > 0) {
+            timeParts.push(
+                `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`,
+            );
+        }
+
+        if (showMilliseconds && milliseconds > 0) {
+            timeParts.push(
+                `${milliseconds} ${milliseconds === 1 ? 'millisecond' : 'milliseconds'}`,
+            );
+        }
+
+        // Apply maxTimeUnits limit
+        if (maxTimeUnits && timeParts.length > maxTimeUnits) {
+            timeParts.splice(maxTimeUnits);
+        }
+
+        // Handle special cases - when all time components are zero
+        if (timeParts.length === 0) {
+            // For midnight (00:00:00.000), show "midnight" instead of "0 hours"
+            if (
+                hours === 0 &&
+                minutes === 0 &&
+                seconds === 0 &&
+                milliseconds === 0
+            ) {
+                timeParts.push('midnight');
+            } else if (showMilliseconds) {
+                timeParts.push('0 milliseconds');
+            } else if (showSeconds) {
+                timeParts.push('0 seconds');
+            } else {
+                timeParts.push('0 minutes');
+            }
+        }
+
+        const timeStr = timeParts.join(', ');
+
+        if (showDate) {
+            return `${dateStr} at ${timeStr}`;
+        } else {
+            return timeStr;
+        }
+    },
+
+    /**
+     * Formats just the time portion intelligently, showing only non-zero units
+     * @param {Date} date - Date to format
+     * @param {object} options - Formatting options
+     * @returns {string} Smart formatted time string
+     */
+    format_smart_time(date, options = {}) {
+        return this.format_smart_datetime(date, {
+            ...options,
+            showDate: false,
+        });
+    },
+
+    /**
+     * Calculates precise duration between two dates and returns formatted string
+     * @param {Date} startDate - Start date
+     * @param {Date} endDate - End date
+     * @param {object} options - Formatting options
+     * @returns {string} Formatted duration string
+     */
+    format_duration_between_dates(startDate, endDate, options = {}) {
+        const durationMs = endDate.getTime() - startDate.getTime();
+        return this.format_duration(durationMs, options);
     },
 };
 
