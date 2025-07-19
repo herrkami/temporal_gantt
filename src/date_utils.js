@@ -69,28 +69,6 @@ export default {
         }
     },
 
-    to_string(date, with_time = false) {
-        if (!(date instanceof Date)) {
-            throw new TypeError('Invalid argument type');
-        }
-        const vals = this.get_date_values(date).map((val, i) => {
-            if (i === 1) {
-                // add 1 for month
-                val = val + 1;
-            }
-
-            if (i === 6) {
-                return padStart(val + '', 3, '0');
-            }
-
-            return padStart(val + '', 2, '0');
-        });
-        const date_string = `${vals[0]}-${vals[1]}-${vals[2]}`;
-        const time_string = `${vals[3]}:${vals[4]}:${vals[5]}.${vals[6]}`;
-
-        return date_string + (with_time ? ' ' + time_string : '');
-    },
-
     format(date, date_format = 'YYYY-MM-DD HH:mm:ss.SSS', lang = 'en') {
         const dateTimeFormat = new Intl.DateTimeFormat(lang, {
             month: 'long',
@@ -251,7 +229,7 @@ export default {
         ];
     },
 
-    convert_scales(period, to_scale) {
+    convert_to_unit(period, unit) {
         const TO_DAYS = {
             millisecond: 1 / 60 / 60 / 24 / 1000,
             second: 1 / 60 / 60 / 24,
@@ -263,7 +241,7 @@ export default {
         };
         const { duration, scale } = this.parse_duration(period);
         let in_days = duration * TO_DAYS[scale];
-        return in_days / TO_DAYS[to_scale];
+        return in_days / TO_DAYS[unit];
     },
 
     get_days_in_month(date) {
@@ -348,25 +326,12 @@ export default {
     },
 
     /**
-     * Formats a date and time with precise timestamp including milliseconds
-     * @param {Date} date - Date to format
-     * @param {string} lang - Language for formatting
-     * @returns {string} Formatted date and time string
-     */
-    format_precise_datetime(date, lang = 'en') {
-        const dateStr = this.format(date, 'MMM D, YYYY', lang);
-        const timeStr = this.format(date, 'HH:mm:ss.SSS', lang);
-        return `${dateStr} at ${timeStr}`;
-    },
-
-    /**
-     * Formats a date and time intelligently, showing only non-zero time units
-     * Similar to duration formatting but for absolute timestamps
+     * Formats a date and time, showing only non-zero time units
      * @param {Date} date - Date to format
      * @param {object} options - Formatting options
      * @returns {string} Smart formatted date and time string
      */
-    format_smart_datetime(date, options = {}) {
+    format_datetime(date, options = {}) {
         const {
             lang = 'en',
             showMilliseconds = true,
@@ -439,19 +404,6 @@ export default {
         } else {
             return timeStr;
         }
-    },
-
-    /**
-     * Formats just the time portion intelligently, showing only non-zero units
-     * @param {Date} date - Date to format
-     * @param {object} options - Formatting options
-     * @returns {string} Smart formatted time string
-     */
-    format_smart_time(date, options = {}) {
-        return this.format_smart_datetime(date, {
-            ...options,
-            showDate: false,
-        });
     },
 };
 

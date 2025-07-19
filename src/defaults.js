@@ -138,12 +138,12 @@ const DEFAULT_OPTIONS = {
         else ctx.set_subtitle('');
 
         // Format smart start and end times showing only non-zero units
-        const start_time = date_utils.format_smart_datetime(ctx.task._start, {
+        const start_time = date_utils.format_datetime(ctx.task._start, {
             lang: ctx.chart.options.language,
             showMilliseconds: false, // Hide milliseconds for cleaner display
             maxTimeUnits: 3, // Show up to 3 time units
         });
-        const end_time = date_utils.format_smart_datetime(ctx.task._end, {
+        const end_time = date_utils.format_datetime(ctx.task._end, {
             lang: ctx.chart.options.language,
             showMilliseconds: false, // Hide milliseconds for cleaner display
             maxTimeUnits: 3, // Show up to 3 time units

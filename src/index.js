@@ -146,6 +146,8 @@ export default class Gantt {
                 }
                 task._end = date_utils.parse_date(task.end);
 
+                // TODO
+                // Use a simple subtraction instead 
                 let diff = date_utils.diff(task._end, task._start, 'year');
                 if (diff < 0) {
                     console.error(
@@ -638,6 +640,8 @@ export default class Gantt {
                 )
                     continue;
                 if (check_highlight(d) || (extra_func && extra_func(d))) {
+                    // TODO 
+                    // Revise for current datetime format
                     const x =
                         (date_utils.diff(
                             d,
@@ -663,7 +667,7 @@ export default class Gantt {
                         y: this.config.header_height,
                         width:
                             this.config.column_width /
-                            date_utils.convert_scales(
+                            date_utils.convert_to_unit(
                                 this.config.view_mode.step,
                                 'day',
                             ),
@@ -731,6 +735,8 @@ export default class Gantt {
             d = new Date(d.getTime() + 24 * 60 * 60 * 1000)
         ) {
             if (
+                // TODO
+                // Arbitrary ignored_dates requires different check
                 !this.config.ignored_dates.find(
                     (k) => k.getTime() == d.getTime(),
                 ) &&
@@ -739,7 +745,7 @@ export default class Gantt {
             )
                 continue;
             let diff =
-                date_utils.convert_scales(
+                date_utils.convert_to_unit(
                     date_utils.diff(d, this.gantt_start) + 'd',
                     this.config.unit,
                 ) / this.config.step;
