@@ -129,7 +129,7 @@ export default class Gantt {
                     return false;
                 }
 
-                task._start = date_utils.parse(task.start);
+                task._start = date_utils.parse_date(task.start);
                 if (task.end === undefined && task.duration !== undefined) {
                     task.end = task._start;
                     let durations = task.duration.split(' ');
@@ -144,7 +144,7 @@ export default class Gantt {
                     console.error(`task "${task.id}" doesn't have an end date`);
                     return false;
                 }
-                task._end = date_utils.parse(task.end);
+                task._end = date_utils.parse_date(task.end);
 
                 let diff = date_utils.diff(task._end, task._start, 'year');
                 if (diff < 0) {
@@ -927,7 +927,7 @@ export default class Gantt {
         } else if (date === 'today') {
             return this.scroll_current();
         } else if (typeof date === 'string') {
-            date = date_utils.parse(date);
+            date = date_utils.parse_date(date);
         }
 
         // Use millisecond precision for scroll position

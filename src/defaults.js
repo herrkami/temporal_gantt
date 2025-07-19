@@ -150,9 +150,8 @@ const DEFAULT_OPTIONS = {
         });
 
         // Calculate precise duration using millisecond precision
-        const precise_duration = date_utils.format_duration_between_dates(
-            ctx.task._start,
-            ctx.task._end,
+        const precise_duration = date_utils.format_duration(
+            ctx.task._end.getTime() - ctx.task._start.getTime(),
             { showMilliseconds: false, maxUnits: 4 }, // Show up to 4 units, no milliseconds for readability
         );
 

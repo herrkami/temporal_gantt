@@ -6,6 +6,17 @@ const MINUTE = 'minute';
 const SECOND = 'second';
 const MILLISECOND = 'millisecond';
 
+const units = {
+    'year': { short: 'y', ms: 365 * 24 * 60 * 60 * 1000 },
+    'month': { short: 'mo', ms: 30 * 24 * 60 * 60 * 1000 },
+    'day': { short: 'd', ms: 24 * 60 * 60 * 1000 },
+    'hour': { short: 'h', ms: 60 * 60 * 1000 },
+    'minute': { short: 'min', ms: 60 * 1000 },
+    'second': { short: 's', ms: 1000 },
+    'millisecond': { short: 'ms', ms: 1 },
+}
+
+
 export default {
     parse_duration(duration) {
         const regex = /([0-9]+)(min|ms|y|m|d|h|s)/;
@@ -30,7 +41,7 @@ export default {
         console.warn(`invalid duration "${duration}", defaulting to 1 day`);
         return { duration: 1, scale: `day` };
     },
-    parse(date, date_separator = '-', time_separator = /[.:]/) {
+    parse_date(date, date_separator = '-', time_separator = /[.:]/) {
         if (date instanceof Date) {
             return date;
         }
@@ -441,18 +452,6 @@ export default {
             ...options,
             showDate: false,
         });
-    },
-
-    /**
-     * Calculates precise duration between two dates and returns formatted string
-     * @param {Date} startDate - Start date
-     * @param {Date} endDate - End date
-     * @param {object} options - Formatting options
-     * @returns {string} Formatted duration string
-     */
-    format_duration_between_dates(startDate, endDate, options = {}) {
-        const durationMs = endDate.getTime() - startDate.getTime();
-        return this.format_duration(durationMs, options);
     },
 };
 
