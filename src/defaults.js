@@ -17,7 +17,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Hour',
         padding: '7d',
         step: '1h',
-        step_ms: 60 * 60 * 1000, // 1 hour in milliseconds
+        step_ms: date_utils.units.hour.in_ms,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -30,7 +30,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Quarter Day',
         padding: '7d',
         step: '6h',
-        step_ms: 6 * 60 * 60 * 1000, // 6 hours in milliseconds
+        step_ms: 6 * date_utils.units.hour.in_ms,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -43,7 +43,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Half Day',
         padding: '14d',
         step: '12h',
-        step_ms: 12 * 60 * 60 * 1000, // 12 hours in milliseconds
+        step_ms: 12 * date_utils.units.hour.in_ms,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -59,7 +59,7 @@ const DEFAULT_VIEW_MODES = [
         padding: '7d',
         date_format: 'YYYY-MM-DD',
         step: '1d',
-        step_ms: 24 * 60 * 60 * 1000, // 1 day in milliseconds
+        step_ms: date_utils.units.day.in_ms,
         lower_text: (d, ld, lang) =>
             !ld || d.getDate() !== ld.getDate()
                 ? date_utils.format(d, 'D', lang)
@@ -74,7 +74,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Week',
         padding: '1m',
         step: '7d',
-        step_ms: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+        step_ms: date_utils.units.week.in_ms,
         date_format: 'YYYY-MM-DD',
         column_width: 140,
         lower_text: formatWeek,
@@ -89,7 +89,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Month',
         padding: '2m',
         step: '1m',
-        step_ms: 30 * 24 * 60 * 60 * 1000, // Approximate month (30 days) in milliseconds
+        step_ms: date_utils.units.month.in_ms,
         column_width: 120,
         date_format: 'YYYY-MM',
         lower_text: 'MMMM',
@@ -104,7 +104,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Year',
         padding: '2y',
         step: '1y',
-        step_ms: 365 * 24 * 60 * 60 * 1000, // Approximate year (365 days) in milliseconds
+        step_ms: date_utils.units.year.in_ms,
         column_width: 120,
         date_format: 'YYYY',
         upper_text: (d, ld, lang) =>
@@ -137,33 +137,31 @@ const DEFAULT_OPTIONS = {
         if (ctx.task.description) ctx.set_subtitle(ctx.task.description);
         else ctx.set_subtitle('');
 
-        // Format smart start and end times showing only non-zero units
         const start_time = date_utils.format_datetime(ctx.task._start, {
             lang: ctx.chart.options.language,
-            showMilliseconds: false, // Hide milliseconds for cleaner display
-            maxTimeUnits: 3, // Show up to 3 time units
+            showMilliseconds: false,
+            maxTimeUnits: 3,
         });
         const end_time = date_utils.format_datetime(ctx.task._end, {
             lang: ctx.chart.options.language,
-            showMilliseconds: false, // Hide milliseconds for cleaner display
-            maxTimeUnits: 3, // Show up to 3 time units
+            showMilliseconds: false,
+            maxTimeUnits: 3,
         });
 
-        // Calculate precise duration using millisecond precision
         const precise_duration = date_utils.format_duration(
             ctx.task._end.getTime() - ctx.task._start.getTime(),
-            { showMilliseconds: false, maxUnits: 4 }, // Show up to 4 units, no milliseconds for readability
+            { showMilliseconds: false, maxUnits: 4 },
         );
 
         // Calculate working duration (excluding ignored periods)
         const working_duration = date_utils.format_duration(
-            ctx.task.actual_duration * 24 * 60 * 60 * 1000, // Convert days to milliseconds
+            ctx.task.actual_duration * date_utils.units.day.in_ms,
             { showMilliseconds: false, maxUnits: 4 },
         );
 
         const ignored_duration = ctx.task.ignored_duration
             ? date_utils.format_duration(
-                  ctx.task.ignored_duration * 24 * 60 * 60 * 1000,
+                  ctx.task.ignored_duration * date_utils.units.day.in_ms,
                   { showMilliseconds: false, maxUnits: 3 },
               )
             : null;

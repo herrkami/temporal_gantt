@@ -1457,13 +1457,13 @@ export default class Gantt {
             const { duration, scale } = date_utils.parse_duration(default_snap);
             // Convert snap duration to milliseconds
             const scale_ms = {
-                second: 1000,
-                minute: 60 * 1000,
-                hour: 60 * 60 * 1000,
-                day: 24 * 60 * 60 * 1000,
-                week: 7 * 24 * 60 * 60 * 1000,
-                month: 30 * 24 * 60 * 60 * 1000,
-                year: 365 * 24 * 60 * 60 * 1000,
+                second: date_utils.units.second.in_ms,
+                minute: date_utils.units.minute.in_ms,
+                hour: date_utils.units.hour.in_ms,
+                day: date_utils.units.day.in_ms,
+                week: date_utils.units.week.in_ms,
+                month: date_utils.units.month.in_ms,
+                year: date_utils.units.year.in_ms,
             };
             snap_ms = duration * (scale_ms[scale] || scale_ms['day']);
         }

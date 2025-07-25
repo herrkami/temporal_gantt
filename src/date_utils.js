@@ -7,17 +7,39 @@ const SECOND = 'second';
 const MILLISECOND = 'millisecond';
 
 const units = {
-    'year': { short: 'y', ms: 365 * 24 * 60 * 60 * 1000 },
-    'month': { short: 'mo', ms: 30 * 24 * 60 * 60 * 1000 },
-    'day': { short: 'd', ms: 24 * 60 * 60 * 1000 },
-    'hour': { short: 'h', ms: 60 * 60 * 1000 },
-    'minute': { short: 'min', ms: 60 * 1000 },
-    'second': { short: 's', ms: 1000 },
-    'millisecond': { short: 'ms', ms: 1 },
+    'year': { 
+        short: 'y',
+        in_ms: 365 * 24 * 60 * 60 * 1000 
+    },
+    'month': { 
+        short: 'mo',
+        in_ms: 30 * 24 * 60 * 60 * 1000 
+    },
+    'day': { 
+        short: 'd',
+        in_ms: 24 * 60 * 60 * 1000 
+    },
+    'hour': { 
+        short: 'h',
+        in_ms: 60 * 60 * 1000 
+    },
+    'minute': { 
+        short: 'min',
+        in_ms: 60 * 1000 
+    },
+    'second': { 
+        short: 's',
+        in_ms: 1000 
+    },
+    'millisecond': { 
+        short: 'ms',
+        in_ms: 1 
+    },
 }
 
 
 export default {
+    units,
     parse_duration(duration) {
         const regex = /([0-9]+)(min|ms|y|m|d|h|s)/;
         const matches = duration.match(regex);
@@ -119,7 +141,7 @@ export default {
         milliseconds =
             date_a -
             date_b +
-            (date_b.getTimezoneOffset() - date_a.getTimezoneOffset()) * 60000;
+            (date_b.getTimezoneOffset() - date_a.getTimezoneOffset()) * date_utils.units.minute.in_ms;
         seconds = milliseconds / 1000;
         minutes = seconds / 60;
         hours = minutes / 60;
@@ -229,15 +251,18 @@ export default {
         ];
     },
 
+    // TODO: 
+    // This function should be universal: unit a -> unit b
     convert_to_unit(period, unit) {
+        const day_in_ms = date_utils.units.day.in_ms;
         const TO_DAYS = {
-            millisecond: 1 / 60 / 60 / 24 / 1000,
-            second: 1 / 60 / 60 / 24,
-            minute: 1 / 60 / 24,
-            hour: 1 / 24,
+            millisecond: date_utils.units.millisecond.in_ms / day_in_ms,
+            second: date_utils.unit.second.in_ms / day_in_ms,
+            minute: date_utils.unit.minute.in_ms / day_in_ms,
+            hour: date_utils.unit.day.in_ms / day_in_ms,
             day: 1,
-            month: 30,
-            year: 365,
+            month: date_utils.unit.month.in_ms / day_in_ms,
+            year: date_utils.unit.year.in_ms / day_in_ms,
         };
         const { duration, scale } = this.parse_duration(period);
         let in_days = duration * TO_DAYS[scale];
