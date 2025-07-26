@@ -15,6 +15,10 @@ const units = {
         short: 'mo',
         in_ms: 30 * 24 * 60 * 60 * 1000 
     },
+    'week': { 
+        short: 'w',
+        in_ms: 7 * 24 * 60 * 60 * 1000 
+    },
     'day': { 
         short: 'd',
         in_ms: 24 * 60 * 60 * 1000 
@@ -141,7 +145,7 @@ export default {
         milliseconds =
             date_a -
             date_b +
-            (date_b.getTimezoneOffset() - date_a.getTimezoneOffset()) * date_utils.units.minute.in_ms;
+            (date_b.getTimezoneOffset() - date_a.getTimezoneOffset()) * this.units.minute.in_ms;
         seconds = milliseconds / 1000;
         minutes = seconds / 60;
         hours = minutes / 60;
@@ -254,15 +258,15 @@ export default {
     // TODO: 
     // This function should be universal: unit a -> unit b
     convert_to_unit(period, unit) {
-        const day_in_ms = date_utils.units.day.in_ms;
+        const day_in_ms = this.units.day.in_ms;
         const TO_DAYS = {
-            millisecond: date_utils.units.millisecond.in_ms / day_in_ms,
-            second: date_utils.unit.second.in_ms / day_in_ms,
-            minute: date_utils.unit.minute.in_ms / day_in_ms,
-            hour: date_utils.unit.day.in_ms / day_in_ms,
+            millisecond: this.units.millisecond.in_ms / day_in_ms,
+            second: this.units.second.in_ms / day_in_ms,
+            minute: this.units.minute.in_ms / day_in_ms,
+            hour: this.units.day.in_ms / day_in_ms,
             day: 1,
-            month: date_utils.unit.month.in_ms / day_in_ms,
-            year: date_utils.unit.year.in_ms / day_in_ms,
+            month: this.units.month.in_ms / day_in_ms,
+            year: this.units.year.in_ms / day_in_ms,
         };
         const { duration, scale } = this.parse_duration(period);
         let in_days = duration * TO_DAYS[scale];
@@ -300,49 +304,48 @@ export default {
     format_duration(ms, options = {}) {
         const {
             showMilliseconds = true,
-            maxUnits = null, // Maximum number of units to show
-            shortForm = false, // Use short form (1y 2d) vs long form (1 year 2 days)
+            maxUnits = null,
+            shortForm = false,
         } = options;
 
         if (ms === 0) return shortForm ? '0ms' : '0 milliseconds';
         if (ms < 0) return '-' + this.format_duration(-ms, options);
 
-        const units = [
-            { name: 'year', short: 'y', ms: 365 * 24 * 60 * 60 * 1000 },
-            { name: 'month', short: 'mo', ms: 30 * 24 * 60 * 60 * 1000 },
-            { name: 'day', short: 'd', ms: 24 * 60 * 60 * 1000 },
-            { name: 'hour', short: 'h', ms: 60 * 60 * 1000 },
-            { name: 'minute', short: 'min', ms: 60 * 1000 },
-            { name: 'second', short: 's', ms: 1000 },
-        ];
+        const unit_names = [
+            'year',
+            'month',
+            'week',
+            'day',
+            'hour',
+            'minute',
+            'second',
+        ]
 
         if (showMilliseconds) {
-            units.push({ name: 'millisecond', short: 'ms', ms: 1 });
+            unit_names.push('millisecond');
         }
 
         const parts = [];
         let remainingMs = ms;
 
-        for (const unit of units) {
-            const count = Math.floor(remainingMs / unit.ms);
+        for (const name of unit_names) {
+            const count = Math.floor(remainingMs / this.units[name].in_ms);
             if (count > 0) {
                 const label = shortForm
-                    ? unit.short
+                    ? this.units[name].short
                     : count === 1
-                      ? unit.name
-                      : unit.name + 's';
+                      ? name
+                      : name + 's';
                 const separator = shortForm ? '' : ' ';
                 parts.push(`${count}${separator}${label}`);
-                remainingMs -= count * unit.ms;
+                remainingMs -= count * this.units[name].in_ms;
             }
 
-            // Stop if we've reached the maximum number of units
             if (maxUnits && parts.length >= maxUnits) {
                 break;
             }
         }
 
-        // If no parts were added (very small duration) and we're not showing milliseconds
         if (parts.length === 0 && !showMilliseconds) {
             return shortForm ? '<1s' : 'less than 1 second';
         }
@@ -367,13 +370,11 @@ export default {
 
         const dateStr = this.format(date, 'MMM D, YYYY', lang);
 
-        // Extract time components
         const hours = date.getHours();
         const minutes = date.getMinutes();
         const seconds = date.getSeconds();
         const milliseconds = date.getMilliseconds();
 
-        // Build time parts array (only non-zero values)
         const timeParts = [];
 
         if (hours > 0) {
@@ -398,7 +399,6 @@ export default {
             );
         }
 
-        // Apply maxTimeUnits limit
         if (maxTimeUnits && timeParts.length > maxTimeUnits) {
             timeParts.splice(maxTimeUnits);
         }

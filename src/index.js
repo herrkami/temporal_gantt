@@ -629,7 +629,7 @@ export default class Gantt {
             for (
                 let d = new Date(this.gantt_start);
                 d <= this.gantt_end;
-                d = new Date(d.getTime() + 24 * 60 * 60 * 1000)
+                d = new Date(d.getTime() + date_utils.units.day.in_ms)
             ) {
                 if (
                     this.config.ignored_dates.find(
@@ -732,7 +732,7 @@ export default class Gantt {
         for (
             let d = new Date(this.gantt_start);
             d <= this.gantt_end;
-            d = new Date(d.getTime() + 24 * 60 * 60 * 1000)
+            d = new Date(d.getTime() + date_utils.units.day.in_ms)
         ) {
             if (
                 // TODO
