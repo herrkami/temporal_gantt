@@ -611,7 +611,7 @@ export default class Bar {
         for (
             let d = new Date(this.task._start);
             d < this.task._end;
-            d = new Date(d.getTime() + 24 * 60 * 60 * 1000)
+            d = new Date(d.getTime() + date_utils.units.day.in_ms)
         ) {
             duration_in_days++;
             if (
@@ -627,12 +627,10 @@ export default class Bar {
         this.task.actual_duration = actual_duration_in_days;
         this.task.ignored_duration = duration_in_days - actual_duration_in_days;
 
-        // Use millisecond precision for duration calculations
         this.duration = total_ms / step_ms;
 
-        // Calculate actual duration based on working days
         const actual_duration_ms =
-            actual_duration_in_days * 24 * 60 * 60 * 1000;
+            actual_duration_in_days * date_utils.units.day.in_ms;
         this.actual_duration_raw = actual_duration_ms / step_ms;
 
         this.ignored_duration_raw = this.duration - this.actual_duration_raw;
