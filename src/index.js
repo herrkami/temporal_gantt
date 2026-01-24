@@ -1,4 +1,18 @@
-import date_utils from './date_utils';
+import {
+    ensureInstant,
+    toPlainDateTime,
+    Temporal,
+    startOf,
+    parseInstant,
+    parseDurationString,
+    add,
+    diff,
+    format,
+    getDaysInMonth,
+    getDaysInYear,
+    convertToUnit,
+    MS_PER_UNIT,
+} from './temporal_utils';
 import { $, createSVG } from './svg_utils';
 
 import Arrow from './arrow';
@@ -41,7 +55,7 @@ export default class Gantt {
         } else {
             throw new TypeError(
                 'Frappe Gantt only supports usage of a string CSS selector,' +
-                    " HTML DOM element or SVG DOM element for the 'element' parameter",
+                " HTML DOM element or SVG DOM element for the 'element' parameter",
             );
         }
 
@@ -103,10 +117,14 @@ export default class Gantt {
                     continue;
                 }
                 if (typeof option === 'string') {
-                    if (option === 'weekend')
-                        this.config.ignored_function = (d) =>
-                            d.getDay() == 6 || d.getDay() == 0;
-                    else this.config.ignored_dates.push(new Date(option + ' '));
+                    if (option === 'weekend') {
+                        this.config.ignored_function = (instant) => {
+                            const pdt = toPlainDateTime(ensureInstant(instant));
+                            return pdt.dayOfWeek === 6 || pdt.dayOfWeek === 7; // Saturday or Sunday
+                        };
+                    } else {
+                        this.config.ignored_dates.push(ensureInstant(option + ' '));
+                    }
                 }
             }
         } else {
@@ -120,86 +138,84 @@ export default class Gantt {
     }
 
     setup_tasks(tasks) {
-        this.tasks = tasks
-            .map((task, i) => {
-                if (!task.start) {
-                    console.error(
-                        `task "${task.id}" doesn't have a start date`,
-                    );
-                    return false;
+        this.tasks = tasks.map((task, i) => {
+            if (!task.start) {
+                console.error(
+                    `task "${task.id}" doesn't have a start date`,
+                );
+                return false;
+            }
+
+            task._start = parseInstant(task.start);
+            if (task.end === undefined && task.duration !== undefined) {
+                task.end = task._start;
+                let durations = task.duration.split(' ');
+
+                durations.forEach((tmpDuration) => {
+                    let { value, unit } =
+                        parseDurationString(tmpDuration);
+                    task.end = add(task.end, value, unit);
+                });
+            }
+            if (!task.end) {
+                console.error(`task "${task.id}" doesn't have an end date`);
+                return false;
+            }
+            task._end = parseInstant(task.end);
+
+            // Check if end is before start
+            if (Temporal.Instant.compare(task._end, task._start) < 0) {
+                console.error(
+                    `start of task can't be after end of task: in task "${task.id}"`,
+                );
+                return false;
+            }
+
+            // make task invalid if duration too large
+            if (diff(task._end, task._start, 'year') > 10) {
+                console.error(
+                    `the duration of task "${task.id}" is too long (above ten years)`,
+                );
+                return false;
+            }
+
+            // cache index
+            task._index = i;
+
+            // if hours is not set, assume the last day is full day
+            // e.g: 2018-09-09 becomes 2018-09-09 23:59:59
+            const task_end_pdt = toPlainDateTime(task._end);
+            if (task_end_pdt.hour === 0 && task_end_pdt.minute === 0 &&
+                task_end_pdt.second === 0 && task_end_pdt.millisecond === 0) {
+                task._end = add(task._end, 24, 'hour');
+            }
+
+            // dependencies
+            if (
+                typeof task.dependencies === 'string' ||
+                !task.dependencies
+            ) {
+                let deps = [];
+                if (task.dependencies) {
+                    deps = task.dependencies
+                        .split(',')
+                        .map((d) => d.trim().replaceAll(' ', '_'))
+                        .filter((d) => d);
                 }
+                task.dependencies = deps;
+            }
 
-                task._start = date_utils.parse_date(task.start);
-                if (task.end === undefined && task.duration !== undefined) {
-                    task.end = task._start;
-                    let durations = task.duration.split(' ');
+            // uids
+            if (!task.id) {
+                task.id = generate_id(task);
+            } else if (typeof task.id === 'string') {
+                task.id = task.id.replaceAll(' ', '_');
+            } else {
+                task.id = `${task.id}`;
+            }
 
-                    durations.forEach((tmpDuration) => {
-                        let { duration, scale } =
-                            date_utils.parse_duration(tmpDuration);
-                        task.end = date_utils.add(task.end, duration, scale);
-                    });
-                }
-                if (!task.end) {
-                    console.error(`task "${task.id}" doesn't have an end date`);
-                    return false;
-                }
-                task._end = date_utils.parse_date(task.end);
-
-                // TODO
-                // Use a simple subtraction instead 
-                let diff = date_utils.diff(task._end, task._start, 'year');
-                if (diff < 0) {
-                    console.error(
-                        `start of task can't be after end of task: in task "${task.id}"`,
-                    );
-                    return false;
-                }
-
-                // make task invalid if duration too large
-                if (date_utils.diff(task._end, task._start, 'year') > 10) {
-                    console.error(
-                        `the duration of task "${task.id}" is too long (above ten years)`,
-                    );
-                    return false;
-                }
-
-                // cache index
-                task._index = i;
-
-                // if hours is not set, assume the last day is full day
-                // e.g: 2018-09-09 becomes 2018-09-09 23:59:59
-                const task_end_values = date_utils.get_date_values(task._end);
-                if (task_end_values.slice(3).every((d) => d === 0)) {
-                    task._end = date_utils.add(task._end, 24, 'hour');
-                }
-
-                // dependencies
-                if (
-                    typeof task.dependencies === 'string' ||
-                    !task.dependencies
-                ) {
-                    let deps = [];
-                    if (task.dependencies) {
-                        deps = task.dependencies
-                            .split(',')
-                            .map((d) => d.trim().replaceAll(' ', '_'))
-                            .filter((d) => d);
-                    }
-                    task.dependencies = deps;
-                }
-
-                // uids
-                if (!task.id) {
-                    task.id = generate_id(task);
-                } else if (typeof task.id === 'string') {
-                    task.id = task.id.replaceAll(' ', '_');
-                } else {
-                    task.id = `${task.id}`;
-                }
-
-                return task;
-            })
+            return task;
+        })
             .filter((t) => t);
         this.setup_dependencies();
     }
@@ -249,30 +265,30 @@ export default class Gantt {
     }
 
     update_view_scale(mode) {
-        let { duration, scale } = date_utils.parse_duration(mode.step);
-        this.config.step = duration;
-        this.config.unit = scale;
-        
+        let { value, unit } = parseDurationString(mode.step);
+        this.config.step = value;
+        this.config.unit = unit;
+
         // Validate step duration
-        if (duration <= 0) {
-            console.warn(`Invalid step duration: ${duration} ${scale}. Using default step of 1 day.`);
+        if (value <= 0) {
+            console.warn(`Invalid step duration: ${value} ${unit}. Using default step of 1 day.`);
             this.config.step = 1;
             this.config.unit = 'day';
         }
-        
+
         // Validate step_ms if provided
         if (mode.step_ms !== undefined && mode.step_ms <= 0) {
             console.warn(`Invalid step_ms: ${mode.step_ms}. Should be positive milliseconds.`);
         }
         this.config.column_width =
             this.options.column_width || mode.column_width || 45;
-        
+
         // Validate column width
         if (this.config.column_width <= 0) {
             console.warn(`Invalid column width: ${this.config.column_width}. Using default value of 45.`);
             this.config.column_width = 45;
         }
-        
+
         this.$container.style.setProperty(
             '--gv-column-width',
             this.config.column_width + 'px',
@@ -291,21 +307,24 @@ export default class Gantt {
     setup_gantt_dates(refresh) {
         let gantt_start, gantt_end;
         if (!this.tasks.length) {
-            gantt_start = new Date();
-            gantt_end = new Date();
+            gantt_start = Temporal.Now.instant();
+            gantt_end = Temporal.Now.instant();
         }
 
         for (let task of this.tasks) {
-            if (!gantt_start || task._start < gantt_start) {
+            const taskStartMs = ensureInstant(task._start).epochMilliseconds;
+            const taskEndMs = ensureInstant(task._end).epochMilliseconds;
+
+            if (!gantt_start || taskStartMs < ensureInstant(gantt_start).epochMilliseconds) {
                 gantt_start = task._start;
             }
-            if (!gantt_end || task._end > gantt_end) {
+            if (!gantt_end || taskEndMs > ensureInstant(gantt_end).epochMilliseconds) {
                 gantt_end = task._end;
             }
         }
 
-        gantt_start = date_utils.start_of(gantt_start, this.config.unit);
-        gantt_end = date_utils.start_of(gantt_end, this.config.unit);
+        gantt_start = startOf(gantt_start, this.config.unit);
+        gantt_end = startOf(gantt_end, this.config.unit);
 
         if (!refresh) {
             if (!this.options.infinite_padding) {
@@ -317,25 +336,25 @@ export default class Gantt {
 
                 let [padding_start, padding_end] =
                     this.config.view_mode.padding.map(
-                        date_utils.parse_duration,
+                        parseDurationString,
                     );
-                this.gantt_start = date_utils.add(
+                this.gantt_start = add(
                     gantt_start,
-                    -padding_start.duration,
-                    padding_start.scale,
+                    -padding_start.value,
+                    padding_start.unit,
                 );
-                this.gantt_end = date_utils.add(
+                this.gantt_end = add(
                     gantt_end,
-                    padding_end.duration,
-                    padding_end.scale,
+                    padding_end.value,
+                    padding_end.unit,
                 );
             } else {
-                this.gantt_start = date_utils.add(
+                this.gantt_start = add(
                     gantt_start,
                     -this.config.extend_by_units * 3,
                     this.config.unit,
                 );
-                this.gantt_end = date_utils.add(
+                this.gantt_end = add(
                     gantt_end,
                     this.config.extend_by_units * 3,
                     this.config.unit,
@@ -344,18 +363,23 @@ export default class Gantt {
         }
         this.config.date_format =
             this.config.view_mode.date_format || this.options.date_format;
-        this.gantt_start.setHours(0, 0, 0, 0);
+        // Normalize gantt_start to midnight
+        this.gantt_start = startOf(this.gantt_start, 'day');
     }
 
     setup_date_values() {
-        let cur_date = this.gantt_start;
-        this.dates = [cur_date];
+        let cur_instant = ensureInstant(this.gantt_start);
+        this.dates = [cur_instant];
 
         // Use millisecond precision for date iteration
         const step_ms = this.config.view_mode.step_ms;
-        while (cur_date < this.gantt_end) {
-            cur_date = new Date(cur_date.getTime() + step_ms);
-            this.dates.push(cur_date);
+        const gantt_end_ms = ensureInstant(this.gantt_end).epochMilliseconds;
+
+        while (cur_instant.epochMilliseconds < gantt_end_ms) {
+            cur_instant = Temporal.Instant.fromEpochMilliseconds(
+                cur_instant.epochMilliseconds + step_ms
+            );
+            this.dates.push(cur_instant);
         }
     }
 
@@ -416,10 +440,10 @@ export default class Gantt {
         const grid_width = this.dates.length * this.config.column_width;
         const grid_height = Math.max(
             this.config.header_height +
-                this.options.padding +
-                (this.options.bar_height + this.options.padding) *
-                    this.tasks.length -
-                10,
+            this.options.padding +
+            (this.options.bar_height + this.options.padding) *
+            this.tasks.length -
+            10,
             this.options.container_height !== 'auto'
                 ? this.options.container_height
                 : 0,
@@ -561,11 +585,11 @@ export default class Gantt {
         }
         if (this.options.lines === 'horizontal') return;
 
-        for (let date of this.dates) {
+        for (let instant of this.dates) {
             let tick_class = 'tick';
             if (
                 this.config.view_mode.thick_line &&
-                this.config.view_mode.thick_line(date)
+                this.config.view_mode.thick_line(instant)
             ) {
                 tick_class += ' thick';
             }
@@ -578,12 +602,12 @@ export default class Gantt {
 
             if (this.view_is('month')) {
                 tick_x +=
-                    (date_utils.get_days_in_month(date) *
+                    (getDaysInMonth(instant) *
                         this.config.column_width) /
                     30;
             } else if (this.view_is('year')) {
                 tick_x +=
-                    (date_utils.get_days_in_year(date) *
+                    (getDaysInYear(instant) *
                         this.config.column_width) /
                     365;
             } else {
@@ -596,10 +620,16 @@ export default class Gantt {
         let labels = {};
         if (!this.options.holidays) return;
 
+        const dayMs = MS_PER_UNIT.day;
+
         for (let color in this.options.holidays) {
             let check_highlight = this.options.holidays[color];
-            if (check_highlight === 'weekend')
-                check_highlight = (d) => d.getDay() === 0 || d.getDay() === 6;
+            if (check_highlight === 'weekend') {
+                check_highlight = (instant) => {
+                    const pdt = toPlainDateTime(ensureInstant(instant));
+                    return pdt.dayOfWeek === 6 || pdt.dayOfWeek === 7;
+                };
+            }
             let extra_func;
 
             if (typeof check_highlight === 'object') {
@@ -608,42 +638,47 @@ export default class Gantt {
                     extra_func = f;
                 }
                 if (this.options.holidays.name) {
-                    let dateObj = new Date(check_highlight.date + ' ');
-                    check_highlight = (d) => dateObj.getTime() === d.getTime();
-                    labels[dateObj] = check_highlight.name;
+                    let dateInstant = ensureInstant(check_highlight.date + ' ');
+                    check_highlight = (instant) =>
+                        dateInstant.epochMilliseconds === ensureInstant(instant).epochMilliseconds;
+                    labels[dateInstant.epochMilliseconds] = check_highlight.name;
                 } else {
-                    check_highlight = (d) =>
+                    check_highlight = (instant) =>
                         this.options.holidays[color]
                             .filter((k) => typeof k !== 'function')
                             .map((k) => {
                                 if (k.name) {
-                                    let dateObj = new Date(k.date + ' ');
-                                    labels[dateObj] = k.name;
-                                    return dateObj.getTime();
+                                    let dateInstant = ensureInstant(k.date + ' ');
+                                    labels[dateInstant.epochMilliseconds] = k.name;
+                                    return dateInstant.epochMilliseconds;
                                 }
-                                return new Date(k + ' ').getTime();
+                                return ensureInstant(k + ' ').epochMilliseconds;
                             })
-                            .includes(d.getTime());
+                            .includes(ensureInstant(instant).epochMilliseconds);
                 }
             }
-            for (
-                let d = new Date(this.gantt_start);
-                d <= this.gantt_end;
-                d = new Date(d.getTime() + date_utils.units.day.in_ms)
-            ) {
+
+            // Iterate through days
+            let currentMs = ensureInstant(this.gantt_start).epochMilliseconds;
+            const endMs = ensureInstant(this.gantt_end).epochMilliseconds;
+
+            while (currentMs <= endMs) {
+                const d = Temporal.Instant.fromEpochMilliseconds(currentMs);
+
                 if (
                     this.config.ignored_dates.find(
-                        (k) => k.getTime() == d.getTime(),
+                        (k) => ensureInstant(k).epochMilliseconds === currentMs,
                     ) ||
                     (this.config.ignored_function &&
                         this.config.ignored_function(d))
-                )
+                ) {
+                    currentMs += dayMs;
                     continue;
+                }
+
                 if (check_highlight(d) || (extra_func && extra_func(d))) {
-                    // TODO 
-                    // Revise for current datetime format
                     const x =
-                        (date_utils.diff(
+                        (diff(
                             d,
                             this.gantt_start,
                             this.config.unit,
@@ -651,23 +686,22 @@ export default class Gantt {
                             this.config.step) *
                         this.config.column_width;
                     const height = this.grid_height - this.config.header_height;
-                    const d_formatted = date_utils
-                        .format(d, 'YYYY-MM-DD', this.options.language)
+                    const d_formatted = format(d, 'YYYY-MM-DD', this.options.language)
                         .replace(' ', '_');
 
-                    if (labels[d]) {
+                    if (labels[currentMs]) {
                         let label = this.create_el({
                             classes: 'holiday-label ' + 'label_' + d_formatted,
                             append_to: this.$extras,
                         });
-                        label.textContent = labels[d];
+                        label.textContent = labels[currentMs];
                     }
                     createSVG('rect', {
                         x: Math.round(x),
                         y: this.config.header_height,
                         width:
                             this.config.column_width /
-                            date_utils.convert_to_unit(
+                            convertToUnit(
                                 this.config.view_mode.step,
                                 'day',
                             ),
@@ -677,6 +711,7 @@ export default class Gantt {
                         append_to: this.layers.grid,
                     });
                 }
+                currentMs += dayMs;
             }
         }
     }
@@ -693,7 +728,9 @@ export default class Gantt {
         const [_, el] = res;
         el.classList.add('current-date-highlight');
 
-        const diff_in_ms = new Date().getTime() - this.gantt_start.getTime();
+        const nowMs = Temporal.Now.instant().epochMilliseconds;
+        const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
+        const diff_in_ms = nowMs - ganttStartMs;
         const step_ms = this.config.view_mode.step_ms;
 
         const left = (diff_in_ms / step_ms) * this.config.column_width;
@@ -729,30 +766,35 @@ export default class Gantt {
                 style="stroke:grey; stroke-width:0.3" />
         </pattern>`;
 
-        for (
-            let d = new Date(this.gantt_start);
-            d <= this.gantt_end;
-            d = new Date(d.getTime() + date_utils.units.day.in_ms)
-        ) {
+        const dayMs = MS_PER_UNIT.day;
+        let currentMs = ensureInstant(this.gantt_start).epochMilliseconds;
+        const endMs = ensureInstant(this.gantt_end).epochMilliseconds;
+
+        while (currentMs <= endMs) {
+            const d = Temporal.Instant.fromEpochMilliseconds(currentMs);
+
             if (
                 // TODO
                 // Arbitrary ignored_dates requires different check
                 !this.config.ignored_dates.find(
-                    (k) => k.getTime() == d.getTime(),
+                    (k) => ensureInstant(k).epochMilliseconds === currentMs,
                 ) &&
                 (!this.config.ignored_function ||
                     !this.config.ignored_function(d))
-            )
+            ) {
+                currentMs += dayMs;
                 continue;
-            let diff =
-                date_utils.convert_to_unit(
-                    date_utils.diff(d, this.gantt_start) + 'd',
+            }
+
+            let positionOffset =
+                convertToUnit(
+                    diff(d, this.gantt_start) + 'd',
                     this.config.unit,
                 ) / this.config.step;
 
-            this.config.ignored_positions.push(diff * this.config.column_width);
+            this.config.ignored_positions.push(positionOffset * this.config.column_width);
             createSVG('rect', {
-                x: diff * this.config.column_width,
+                x: positionOffset * this.config.column_width,
                 y: this.config.header_height,
                 width: this.config.column_width,
                 height: height,
@@ -760,6 +802,8 @@ export default class Gantt {
                 style: 'fill: url(#diagonalHatch);',
                 append_to: this.$svg,
             });
+
+            currentMs += dayMs;
         }
 
         const highlightDimensions = this.highlight_current(
@@ -810,16 +854,16 @@ export default class Gantt {
 
     get_dates_to_draw() {
         let last_date_info = null;
-        const dates = this.dates.map((date, i) => {
-            const d = this.get_date_info(date, last_date_info, i);
+        const dates = this.dates.map((instant, i) => {
+            const d = this.get_date_info(instant, last_date_info, i);
             last_date_info = d;
             return d;
         });
         return dates;
     }
 
-    get_date_info(date, last_date_info) {
-        let last_date = last_date_info ? last_date_info.date : null;
+    get_date_info(instant, last_date_info) {
+        let last_instant = last_date_info ? last_date_info.instant : null;
 
         let column_width = this.config.column_width;
 
@@ -833,22 +877,23 @@ export default class Gantt {
         if (!upper_text) {
             this.config.view_mode.upper_text = () => '';
         } else if (typeof upper_text === 'string') {
-            this.config.view_mode.upper_text = (date) =>
-                date_utils.format(date, upper_text, this.options.language);
+            this.config.view_mode.upper_text = (instant) =>
+                format(instant, upper_text, this.options.language);
         }
 
         if (!lower_text) {
             this.config.view_mode.lower_text = () => '';
         } else if (typeof lower_text === 'string') {
-            this.config.view_mode.lower_text = (date) =>
-                date_utils.format(date, lower_text, this.options.language);
+            this.config.view_mode.lower_text = (instant) =>
+                format(instant, lower_text, this.options.language);
         }
 
         return {
-            date,
+            instant,
+            date: instant, // backward compatibility
             formatted_date: sanitize(
-                date_utils.format(
-                    date,
+                format(
+                    instant,
                     this.config.date_format,
                     this.options.language,
                 ),
@@ -856,13 +901,13 @@ export default class Gantt {
             column_width: this.config.column_width,
             x,
             upper_text: this.config.view_mode.upper_text(
-                date,
-                last_date,
+                instant,
+                last_instant,
                 this.options.language,
             ),
             lower_text: this.config.view_mode.lower_text(
-                date,
-                last_date,
+                instant,
+                last_instant,
                 this.options.language,
             ),
             upper_y: 17,
@@ -933,11 +978,13 @@ export default class Gantt {
         } else if (date === 'today') {
             return this.scroll_current();
         } else if (typeof date === 'string') {
-            date = date_utils.parse_date(date);
+            date = parseInstant(date);
         }
 
         // Use millisecond precision for scroll position
-        const ms_since_first_task = date.getTime() - this.gantt_start.getTime();
+        const dateMs = ensureInstant(date).epochMilliseconds;
+        const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
+        const ms_since_first_task = dateMs - ganttStartMs;
         const step_ms = this.config.view_mode.step_ms;
         const scroll_pos =
             (ms_since_first_task / step_ms) * this.config.column_width;
@@ -955,7 +1002,9 @@ export default class Gantt {
         const scroll_ms =
             (this.$container.scrollLeft / this.config.column_width) *
             this.config.view_mode.step_ms;
-        this.current_date = new Date(this.gantt_start.getTime() + scroll_ms);
+        this.current_date = Temporal.Instant.fromEpochMilliseconds(
+            ganttStartMs + scroll_ms
+        );
 
         let current_upper = this.config.view_mode.upper_text(
             this.current_date,
@@ -971,8 +1020,8 @@ export default class Gantt {
             ((this.$container.scrollLeft + $el.clientWidth) /
                 this.config.column_width) *
             this.config.view_mode.step_ms;
-        this.current_date = new Date(
-            this.gantt_start.getTime() + adjusted_scroll_ms,
+        this.current_date = Temporal.Instant.fromEpochMilliseconds(
+            ganttStartMs + adjusted_scroll_ms
         );
         current_upper = this.config.view_mode.upper_text(
             this.current_date,
@@ -990,45 +1039,49 @@ export default class Gantt {
     }
 
     get_closest_date() {
-        let now = new Date();
-        if (now < this.gantt_start || now > this.gantt_end) return null;
+        const nowMs = Temporal.Now.instant().epochMilliseconds;
+        const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
+        const ganttEndMs = ensureInstant(this.gantt_end).epochMilliseconds;
 
-        let current = new Date(),
-            el = this.$container.querySelector(
-                '.date_' +
-                    sanitize(
-                        date_utils.format(
-                            current,
-                            this.config.date_format,
-                            this.options.language,
-                        ),
-                    ),
-            );
+        if (nowMs < ganttStartMs || nowMs > ganttEndMs) return null;
+
+        let current = Temporal.Now.instant();
+        let el = this.$container.querySelector(
+            '.date_' +
+            sanitize(
+                format(
+                    current,
+                    this.config.date_format,
+                    this.options.language,
+                ),
+            ),
+        );
 
         // safety check to prevent infinite loop
         let c = 0;
         while (!el && c < this.config.step) {
-            current = date_utils.add(current, -1, this.config.unit);
+            current = add(current, -1, this.config.unit);
             el = this.$container.querySelector(
                 '.date_' +
-                    sanitize(
-                        date_utils.format(
-                            current,
-                            this.config.date_format,
-                            this.options.language,
-                        ),
+                sanitize(
+                    format(
+                        current,
+                        this.config.date_format,
+                        this.options.language,
                     ),
+                ),
             );
             c++;
         }
+
+        // Parse the formatted date string back to an instant
+        const formattedDate = format(
+            current,
+            this.config.date_format,
+            this.options.language,
+        );
         return [
-            new Date(
-                date_utils.format(
-                    current,
-                    this.config.date_format,
-                    this.options.language,
-                ) + ' ',
-            ),
+            ensureInstant(formattedDate + ' '),
             el,
         ];
     }
@@ -1160,7 +1213,7 @@ export default class Gantt {
                     let old_scroll_left = e.currentTarget.scrollLeft;
                     extended = true;
 
-                    this.gantt_start = date_utils.add(
+                    this.gantt_start = add(
                         this.gantt_start,
                         -this.config.extend_by_units,
                         this.config.unit,
@@ -1176,13 +1229,13 @@ export default class Gantt {
                 if (
                     !extended &&
                     e.currentTarget.scrollWidth -
-                        (e.currentTarget.scrollLeft +
-                            e.currentTarget.clientWidth) <=
-                        trigger
+                    (e.currentTarget.scrollLeft +
+                        e.currentTarget.clientWidth) <=
+                    trigger
                 ) {
                     let old_scroll_left = e.currentTarget.scrollLeft;
                     extended = true;
-                    this.gantt_end = date_utils.add(
+                    this.gantt_end = add(
                         this.gantt_end,
                         this.config.extend_by_units,
                         this.config.unit,
@@ -1206,11 +1259,12 @@ export default class Gantt {
             }
 
             // Calculate current scroll position's upper text using milliseconds
+            const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
             const scroll_ms =
                 (e.currentTarget.scrollLeft / this.config.column_width) *
                 this.config.view_mode.step_ms;
-            this.current_date = new Date(
-                this.gantt_start.getTime() + scroll_ms,
+            this.current_date = Temporal.Instant.fromEpochMilliseconds(
+                ganttStartMs + scroll_ms,
             );
 
             let current_upper = this.config.view_mode.upper_text(
@@ -1227,8 +1281,8 @@ export default class Gantt {
                 ((e.currentTarget.scrollLeft + $el.clientWidth) /
                     this.config.column_width) *
                 this.config.view_mode.step_ms;
-            this.current_date = new Date(
-                this.gantt_start.getTime() + adjusted_scroll_ms,
+            this.current_date = Temporal.Instant.fromEpochMilliseconds(
+                ganttStartMs + adjusted_scroll_ms,
             );
             current_upper = this.config.view_mode.upper_text(
                 this.current_date,
@@ -1454,18 +1508,18 @@ export default class Gantt {
             this.options.snap_at || this.config.view_mode.snap_at || '1d';
 
         if (default_snap !== 'unit') {
-            const { duration, scale } = date_utils.parse_duration(default_snap);
+            const { value, unit } = parseDurationString(default_snap);
             // Convert snap duration to milliseconds
             const scale_ms = {
-                second: date_utils.units.second.in_ms,
-                minute: date_utils.units.minute.in_ms,
-                hour: date_utils.units.hour.in_ms,
-                day: date_utils.units.day.in_ms,
-                week: date_utils.units.week.in_ms,
-                month: date_utils.units.month.in_ms,
-                year: date_utils.units.year.in_ms,
+                second: MS_PER_UNIT.second,
+                minute: MS_PER_UNIT.minute,
+                hour: MS_PER_UNIT.hour,
+                day: MS_PER_UNIT.day,
+                week: MS_PER_UNIT.week,
+                month: MS_PER_UNIT.month,
+                year: MS_PER_UNIT.year,
             };
-            snap_ms = duration * (scale_ms[scale] || scale_ms['day']);
+            snap_ms = value * (scale_ms[unit] || scale_ms['day']);
         }
 
         // Convert pixel delta to milliseconds
@@ -1559,16 +1613,18 @@ export default class Gantt {
     /**
      * Gets the oldest starting date from the list of tasks
      *
-     * @returns Date
+     * @returns Temporal.Instant
      * @memberof Gantt
      */
     get_oldest_starting_date() {
-        if (!this.tasks.length) return new Date();
+        if (!this.tasks.length) return Temporal.Now.instant();
         return this.tasks
             .map((task) => task._start)
-            .reduce((prev_date, cur_date) =>
-                cur_date <= prev_date ? cur_date : prev_date,
-            );
+            .reduce((prev, cur) => {
+                const prevMs = ensureInstant(prev).epochMilliseconds;
+                const curMs = ensureInstant(cur).epochMilliseconds;
+                return curMs <= prevMs ? cur : prev;
+            });
     }
 
     /**

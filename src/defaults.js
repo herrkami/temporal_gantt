@@ -1,15 +1,18 @@
-import date_utils from './date_utils';
+import { toPlainDateTime, ensureInstant, add, format, formatDatetime, formatDuration, MS_PER_UNIT } from './temporal_utils';
 
-function getDecade(d) {
-    const year = d.getFullYear();
+function getDecade(instant) {
+    const pdt = toPlainDateTime(ensureInstant(instant));
+    const year = pdt.year;
     return year - (year % 10) + '';
 }
 
-function formatWeek(d, ld, lang) {
-    let endOfWeek = date_utils.add(d, 6, 'day');
-    let endFormat = endOfWeek.getMonth() !== d.getMonth() ? 'D MMM' : 'D';
-    let beginFormat = !ld || d.getMonth() !== ld.getMonth() ? 'D MMM' : 'D';
-    return `${date_utils.format(d, beginFormat, lang)} - ${date_utils.format(endOfWeek, endFormat, lang)}`;
+function formatWeek(instant, lastInstant, lang) {
+    const pdt = toPlainDateTime(ensureInstant(instant));
+    let endOfWeek = add(instant, 6, 'day');
+    const endPdt = toPlainDateTime(endOfWeek);
+    let endFormat = endPdt.month !== pdt.month ? 'D MMM' : 'D';
+    let beginFormat = !lastInstant || toPlainDateTime(ensureInstant(lastInstant)).month !== pdt.month ? 'D MMM' : 'D';
+    return `${format(instant, beginFormat, lang)} - ${format(endOfWeek, endFormat, lang)}`;
 }
 
 const DEFAULT_VIEW_MODES = [
@@ -17,41 +20,50 @@ const DEFAULT_VIEW_MODES = [
         name: 'Hour',
         padding: '7d',
         step: '1h',
-        step_ms: date_utils.units.hour.in_ms,
+        step_ms: MS_PER_UNIT.hour,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
-        upper_text: (d, ld, lang) =>
-            !ld || d.getDate() !== ld.getDate()
-                ? date_utils.format(d, 'D MMMM', lang)
-                : '',
+        upper_text: (instant, lastInstant, lang) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
+            return !lastPdt || pdt.day !== lastPdt.day
+                ? format(instant, 'D MMMM', lang)
+                : '';
+        },
         upper_text_frequency: 24,
     },
     {
         name: 'Quarter Day',
         padding: '7d',
         step: '6h',
-        step_ms: 6 * date_utils.units.hour.in_ms,
+        step_ms: 6 * MS_PER_UNIT.hour,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
-        upper_text: (d, ld, lang) =>
-            !ld || d.getDate() !== ld.getDate()
-                ? date_utils.format(d, 'D MMM', lang)
-                : '',
+        upper_text: (instant, lastInstant, lang) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
+            return !lastPdt || pdt.day !== lastPdt.day
+                ? format(instant, 'D MMM', lang)
+                : '';
+        },
         upper_text_frequency: 4,
     },
     {
         name: 'Half Day',
         padding: '14d',
         step: '12h',
-        step_ms: 12 * date_utils.units.hour.in_ms,
+        step_ms: 12 * MS_PER_UNIT.hour,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
-        upper_text: (d, ld, lang) =>
-            !ld || d.getDate() !== ld.getDate()
-                ? d.getMonth() !== d.getMonth()
-                    ? date_utils.format(d, 'D MMM', lang)
-                    : date_utils.format(d, 'D', lang)
-                : '',
+        upper_text: (instant, lastInstant, lang) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
+            return !lastPdt || pdt.day !== lastPdt.day
+                ? !lastPdt || pdt.month !== lastPdt.month
+                    ? format(instant, 'D MMM', lang)
+                    : format(instant, 'D', lang)
+                : '';
+        },
         upper_text_frequency: 2,
     },
     {
@@ -59,56 +71,77 @@ const DEFAULT_VIEW_MODES = [
         padding: '7d',
         date_format: 'YYYY-MM-DD',
         step: '1d',
-        step_ms: date_utils.units.day.in_ms,
-        lower_text: (d, ld, lang) =>
-            !ld || d.getDate() !== ld.getDate()
-                ? date_utils.format(d, 'D', lang)
-                : '',
-        upper_text: (d, ld, lang) =>
-            !ld || d.getMonth() !== ld.getMonth()
-                ? date_utils.format(d, 'MMMM', lang)
-                : '',
-        thick_line: (d) => d.getDay() === 1,
+        step_ms: MS_PER_UNIT.day,
+        lower_text: (instant, lastInstant, lang) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
+            return !lastPdt || pdt.day !== lastPdt.day
+                ? format(instant, 'D', lang)
+                : '';
+        },
+        upper_text: (instant, lastInstant, lang) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
+            return !lastPdt || pdt.month !== lastPdt.month
+                ? format(instant, 'MMMM', lang)
+                : '';
+        },
+        thick_line: (instant) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            return pdt.dayOfWeek === 1; // Monday
+        },
     },
     {
         name: 'Week',
         padding: '1m',
         step: '7d',
-        step_ms: date_utils.units.week.in_ms,
+        step_ms: MS_PER_UNIT.week,
         date_format: 'YYYY-MM-DD',
         column_width: 140,
         lower_text: formatWeek,
-        upper_text: (d, ld, lang) =>
-            !ld || d.getMonth() !== ld.getMonth()
-                ? date_utils.format(d, 'MMMM', lang)
-                : '',
-        thick_line: (d) => d.getDate() >= 1 && d.getDate() <= 7,
+        upper_text: (instant, lastInstant, lang) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
+            return !lastPdt || pdt.month !== lastPdt.month
+                ? format(instant, 'MMMM', lang)
+                : '';
+        },
+        thick_line: (instant) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            return pdt.day >= 1 && pdt.day <= 7;
+        },
         upper_text_frequency: 4,
     },
     {
         name: 'Month',
         padding: '2m',
         step: '1m',
-        step_ms: date_utils.units.month.in_ms,
+        step_ms: MS_PER_UNIT.month,
         column_width: 120,
         date_format: 'YYYY-MM',
         lower_text: 'MMMM',
-        upper_text: (d, ld, lang) =>
-            !ld || d.getFullYear() !== ld.getFullYear()
-                ? date_utils.format(d, 'YYYY', lang)
-                : '',
-        thick_line: (d) => d.getMonth() % 3 === 0,
+        upper_text: (instant, lastInstant, lang) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
+            return !lastPdt || pdt.year !== lastPdt.year
+                ? format(instant, 'YYYY', lang)
+                : '';
+        },
+        thick_line: (instant) => {
+            const pdt = toPlainDateTime(ensureInstant(instant));
+            return pdt.month % 3 === 0;
+        },
         snap_at: '7d',
     },
     {
         name: 'Year',
         padding: '2y',
         step: '1y',
-        step_ms: date_utils.units.year.in_ms,
+        step_ms: MS_PER_UNIT.year,
         column_width: 120,
         date_format: 'YYYY',
-        upper_text: (d, ld, lang) =>
-            !ld || getDecade(d) !== getDecade(ld) ? getDecade(d) : '',
+        upper_text: (instant, lastInstant, lang) =>
+            !lastInstant || getDecade(instant) !== getDecade(lastInstant) ? getDecade(instant) : '',
         lower_text: 'YYYY',
         snap_at: '30d',
     },
@@ -137,31 +170,34 @@ const DEFAULT_OPTIONS = {
         if (ctx.task.description) ctx.set_subtitle(ctx.task.description);
         else ctx.set_subtitle('');
 
-        const start_time = date_utils.format_datetime(ctx.task._start, {
+        const start_time = formatDatetime(ctx.task._start, {
             lang: ctx.chart.options.language,
             showMilliseconds: false,
             maxTimeUnits: 3,
         });
-        const end_time = date_utils.format_datetime(ctx.task._end, {
+        const end_time = formatDatetime(ctx.task._end, {
             lang: ctx.chart.options.language,
             showMilliseconds: false,
             maxTimeUnits: 3,
         });
 
-        const precise_duration = date_utils.format_duration(
-            ctx.task._end.getTime() - ctx.task._start.getTime(),
+        // Calculate precise duration using epochMilliseconds
+        const startMs = ensureInstant(ctx.task._start).epochMilliseconds;
+        const endMs = ensureInstant(ctx.task._end).epochMilliseconds;
+        const precise_duration = formatDuration(
+            endMs - startMs,
             { showMilliseconds: false, maxUnits: 4 },
         );
 
         // Calculate working duration (excluding ignored periods)
-        const working_duration = date_utils.format_duration(
-            ctx.task.actual_duration * date_utils.units.day.in_ms,
+        const working_duration = formatDuration(
+            ctx.task.actual_duration * MS_PER_UNIT.day,
             { showMilliseconds: false, maxUnits: 4 },
         );
 
         const ignored_duration = ctx.task.ignored_duration
-            ? date_utils.format_duration(
-                  ctx.task.ignored_duration * date_utils.units.day.in_ms,
+            ? formatDuration(
+                  ctx.task.ignored_duration * MS_PER_UNIT.day,
                   { showMilliseconds: false, maxUnits: 3 },
               )
             : null;

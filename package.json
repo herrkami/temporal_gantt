@@ -42,6 +42,9 @@
         "url": "https://github.com/frappe/gantt/issues"
     },
     "homepage": "https://github.com/frappe/gantt",
+    "dependencies": {
+        "temporal-polyfill": "^0.3.0"
+    },
     "devDependencies": {
         "eslint": "^9.15.0",
         "eslint-config-prettier": "^2.9.0",

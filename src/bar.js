@@ -1,4 +1,4 @@
-import date_utils from './date_utils';
+import { ensureInstant, add, Temporal, diff, today, MS_PER_UNIT } from './temporal_utils';
 import { $, createSVG, animateSVG } from './svg_utils';
 
 export default class Bar {
@@ -51,8 +51,8 @@ export default class Bar {
         this.invalid = this.task.invalid;
         this.height = this.gantt.options.bar_height;
         this.image_size = this.height - 5;
-        this.task._start = new Date(this.task.start);
-        this.task._end = new Date(this.task.end);
+        this.task._start = ensureInstant(this.task.start);
+        this.task._end = ensureInstant(this.task.end);
         this.compute_x();
         this.compute_y();
         this.compute_duration();
@@ -165,7 +165,8 @@ export default class Bar {
             this.$bar_progress.style.fill = this.task.color_progress;
         // Use millisecond precision for progress bar position
         const diff_ms =
-            this.task._start.getTime() - this.gantt.gantt_start.getTime();
+            ensureInstant(this.task._start).epochMilliseconds -
+            ensureInstant(this.gantt.gantt_start).epochMilliseconds;
         const step_ms = this.gantt.config.view_mode.step_ms;
         const x = (diff_ms / step_ms) * this.gantt.config.column_width;
 
@@ -187,11 +188,11 @@ export default class Bar {
             this.gantt.config.ignored_positions.reduce((acc, val) => {
                 return acc + (val >= this.x && val < ignored_end);
             }, 0) * this.gantt.config.column_width;
-        
+
         // Calculate progress based on working area (non-ignored portions)
         const working_width = Math.max(0, width - total_ignored_width);
         let progress_width = (working_width * this.task.progress) / 100;
-        
+
         const progress_end = this.x + progress_width;
         const total_ignored_progress =
             this.gantt.config.ignored_positions.reduce((acc, val) => {
@@ -210,7 +211,7 @@ export default class Bar {
                 this.x + progress_width,
             );
         }
-        
+
         this.progress_width = progress_width;
         return progress_width;
     }
@@ -493,23 +494,28 @@ export default class Bar {
 
     date_changed() {
         let changed = false;
-        const { new_start_date, new_end_date } = this.compute_start_end_date();
-        if (Number(this.task._start) !== Number(new_start_date)) {
+        const { new_start_instant, new_end_instant } = this.compute_start_end_instant();
+
+        const startMs = ensureInstant(this.task._start).epochMilliseconds;
+        const newStartMs = ensureInstant(new_start_instant).epochMilliseconds;
+        if (startMs !== newStartMs) {
             changed = true;
-            this.task._start = new_start_date;
+            this.task._start = new_start_instant;
         }
 
-        if (Number(this.task._end) !== Number(new_end_date)) {
+        const endMs = ensureInstant(this.task._end).epochMilliseconds;
+        const newEndMs = ensureInstant(new_end_instant).epochMilliseconds;
+        if (endMs !== newEndMs) {
             changed = true;
-            this.task._end = new_end_date;
+            this.task._end = new_end_instant;
         }
 
         if (!changed) return;
 
         this.gantt.trigger_event('date_change', [
             this.task,
-            new_start_date,
-            date_utils.add(new_end_date, -1, 'second'),
+            new_start_instant,
+            add(new_end_instant, -1, 'second'),
         ]);
     }
 
@@ -526,22 +532,25 @@ export default class Bar {
         setTimeout(() => (this.action_completed = false), 1000);
     }
 
-    compute_start_end_date() {
+    compute_start_end_instant() {
         const bar = this.$bar;
         const x_in_units = bar.getX() / this.gantt.config.column_width;
         const step_ms = this.gantt.config.view_mode.step_ms;
 
-        // Use millisecond precision for date calculations
+        // Use millisecond precision for instant calculations
         const start_offset_ms = x_in_units * step_ms;
-        const new_start_date = new Date(
-            this.gantt.gantt_start.getTime() + start_offset_ms,
+        const gantt_start_ms = ensureInstant(this.gantt.gantt_start).epochMilliseconds;
+        const new_start_instant = Temporal.Instant.fromEpochMilliseconds(
+            gantt_start_ms + start_offset_ms,
         );
 
         const width_in_units = bar.getWidth() / this.gantt.config.column_width;
         const duration_ms = width_in_units * step_ms;
-        const new_end_date = new Date(new_start_date.getTime() + duration_ms);
+        const new_end_instant = Temporal.Instant.fromEpochMilliseconds(
+            new_start_instant.epochMilliseconds + duration_ms,
+        );
 
-        return { new_start_date, new_end_date };
+        return { new_start_instant, new_end_instant };
     }
 
     compute_progress() {
@@ -555,14 +564,14 @@ export default class Bar {
             }, 0) *
                 this.gantt.config.column_width;
         if (progress < 0) return 0;
-        
+
         const total =
             this.$bar.getWidth() -
             this.ignored_duration_raw * this.gantt.config.column_width;
-        
+
         // Prevent division by zero - if total is zero or negative, return 0%
         if (total <= 0) return 0;
-        
+
         // Ensure progress percentage is between 0 and 100
         const progressPercent = parseInt((progress / total) * 100, 10);
         return Math.max(0, Math.min(100, progressPercent));
@@ -570,7 +579,7 @@ export default class Bar {
 
     compute_expected_progress() {
         this.expected_progress =
-            date_utils.diff(date_utils.today(), this.task._start, 'hour') /
+            diff(today(), this.task._start, 'hour') /
             this.gantt.config.step;
         this.expected_progress =
             ((this.expected_progress < this.duration
@@ -582,11 +591,11 @@ export default class Bar {
 
     compute_x() {
         const { column_width } = this.gantt.config;
-        const task_start = this.task._start;
-        const gantt_start = this.gantt.gantt_start;
+        const task_start = ensureInstant(this.task._start);
+        const gantt_start = ensureInstant(this.gantt.gantt_start);
 
         // Use millisecond precision for position calculation
-        const diff_ms = task_start.getTime() - gantt_start.getTime();
+        const diff_ms = task_start.epochMilliseconds - gantt_start.epochMilliseconds;
         const step_ms = this.gantt.config.view_mode.step_ms;
         const x = (diff_ms / step_ms) * column_width;
 
@@ -602,27 +611,33 @@ export default class Bar {
 
     compute_duration() {
         // Calculate duration in milliseconds for precision
-        const total_ms = this.task._end.getTime() - this.task._start.getTime();
+        const start_ms = ensureInstant(this.task._start).epochMilliseconds;
+        const end_ms = ensureInstant(this.task._end).epochMilliseconds;
+        const total_ms = end_ms - start_ms;
         const step_ms = this.gantt.config.view_mode.step_ms;
 
         // Calculate actual duration excluding ignored periods
         let actual_duration_in_days = 0,
             duration_in_days = 0;
-        for (
-            let d = new Date(this.task._start);
-            d < this.task._end;
-            d = new Date(d.getTime() + date_utils.units.day.in_ms)
-        ) {
+
+        // Iterate through days using Temporal
+        let current = ensureInstant(this.task._start);
+        const end = ensureInstant(this.task._end);
+        const dayMs = MS_PER_UNIT.day;
+
+        while (current.epochMilliseconds < end.epochMilliseconds) {
             duration_in_days++;
+            const currentMs = current.epochMilliseconds;
             if (
                 !this.gantt.config.ignored_dates.find(
-                    (k) => k.getTime() === d.getTime(),
+                    (k) => ensureInstant(k).epochMilliseconds === currentMs,
                 ) &&
                 (!this.gantt.config.ignored_function ||
-                    !this.gantt.config.ignored_function(d))
+                    !this.gantt.config.ignored_function(current))
             ) {
                 actual_duration_in_days++;
             }
+            current = Temporal.Instant.fromEpochMilliseconds(currentMs + dayMs);
         }
         this.task.actual_duration = actual_duration_in_days;
         this.task.ignored_duration = duration_in_days - actual_duration_in_days;
@@ -630,7 +645,7 @@ export default class Bar {
         this.duration = total_ms / step_ms;
 
         const actual_duration_ms =
-            actual_duration_in_days * date_utils.units.day.in_ms;
+            actual_duration_in_days * MS_PER_UNIT.day;
         this.actual_duration_raw = actual_duration_ms / step_ms;
 
         this.ignored_duration_raw = this.duration - this.actual_duration_raw;
