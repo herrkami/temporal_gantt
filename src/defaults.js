@@ -17,6 +17,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Hour',
         padding: '7d',
         step: '1h',
+        step_ms: date_utils.units.hour.in_ms,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -29,6 +30,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Quarter Day',
         padding: '7d',
         step: '6h',
+        step_ms: 6 * date_utils.units.hour.in_ms,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -41,6 +43,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Half Day',
         padding: '14d',
         step: '12h',
+        step_ms: 12 * date_utils.units.hour.in_ms,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (d, ld, lang) =>
@@ -56,6 +59,7 @@ const DEFAULT_VIEW_MODES = [
         padding: '7d',
         date_format: 'YYYY-MM-DD',
         step: '1d',
+        step_ms: date_utils.units.day.in_ms,
         lower_text: (d, ld, lang) =>
             !ld || d.getDate() !== ld.getDate()
                 ? date_utils.format(d, 'D', lang)
@@ -70,6 +74,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Week',
         padding: '1m',
         step: '7d',
+        step_ms: date_utils.units.week.in_ms,
         date_format: 'YYYY-MM-DD',
         column_width: 140,
         lower_text: formatWeek,
@@ -84,6 +89,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Month',
         padding: '2m',
         step: '1m',
+        step_ms: date_utils.units.month.in_ms,
         column_width: 120,
         date_format: 'YYYY-MM',
         lower_text: 'MMMM',
@@ -98,6 +104,7 @@ const DEFAULT_VIEW_MODES = [
         name: 'Year',
         padding: '2y',
         step: '1y',
+        step_ms: date_utils.units.year.in_ms,
         column_width: 120,
         date_format: 'YYYY',
         upper_text: (d, ld, lang) =>
@@ -130,20 +137,47 @@ const DEFAULT_OPTIONS = {
         if (ctx.task.description) ctx.set_subtitle(ctx.task.description);
         else ctx.set_subtitle('');
 
-        const start_date = date_utils.format(
-            ctx.task._start,
-            'MMM D',
-            ctx.chart.options.language,
-        );
-        const end_date = date_utils.format(
-            date_utils.add(ctx.task._end, -1, 'second'),
-            'MMM D',
-            ctx.chart.options.language,
+        const start_time = date_utils.format_datetime(ctx.task._start, {
+            lang: ctx.chart.options.language,
+            showMilliseconds: false,
+            maxTimeUnits: 3,
+        });
+        const end_time = date_utils.format_datetime(ctx.task._end, {
+            lang: ctx.chart.options.language,
+            showMilliseconds: false,
+            maxTimeUnits: 3,
+        });
+
+        const precise_duration = date_utils.format_duration(
+            ctx.task._end.getTime() - ctx.task._start.getTime(),
+            { showMilliseconds: false, maxUnits: 4 },
         );
 
-        ctx.set_details(
-            `${start_date} - ${end_date} (${ctx.task.actual_duration} days${ctx.task.ignored_duration ? ' + ' + ctx.task.ignored_duration + ' excluded' : ''})<br/>Progress: ${Math.floor(ctx.task.progress * 100) / 100}%`,
+        // Calculate working duration (excluding ignored periods)
+        const working_duration = date_utils.format_duration(
+            ctx.task.actual_duration * date_utils.units.day.in_ms,
+            { showMilliseconds: false, maxUnits: 4 },
         );
+
+        const ignored_duration = ctx.task.ignored_duration
+            ? date_utils.format_duration(
+                  ctx.task.ignored_duration * date_utils.units.day.in_ms,
+                  { showMilliseconds: false, maxUnits: 3 },
+              )
+            : null;
+
+        let details = `<strong>Start:</strong> ${start_time}<br/>`;
+        details += `<strong>End:</strong> ${end_time}<br/>`;
+        details += `<strong>Total Duration:</strong> ${precise_duration}<br/>`;
+        details += `<strong>Working Duration:</strong> ${working_duration}`;
+
+        if (ignored_duration) {
+            details += `<br/><strong>Excluded Time:</strong> ${ignored_duration}`;
+        }
+
+        details += `<br/><strong>Progress:</strong> ${Math.floor(ctx.task.progress * 100) / 100}%`;
+
+        ctx.set_details(details);
     },
     popup_on: 'click',
     readonly_progress: false,

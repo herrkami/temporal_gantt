@@ -380,31 +380,31 @@
 
             const tasksSpread = [
                 {
-                    start: daysSince(-30),
-                    end: daysSince(-10),
                     name: 'Redesign website',
+                    start: daysSince(-2),
+                    end: daysSince(4),
                     id: 'Task 0',
                     progress: random(),
                 },
                 {
-                    start: daysSince(-15),
-                    duration: '21d',
                     name: 'Write new content',
+                    start: daysSince(-1),
+                    duration: '3h',
                     id: 'Task 1',
                     progress: random(),
                     important: true,
                 },
                 {
-                    start: daysSince(10),
-                    duration: '14d',
                     name: 'Review',
+                    start: daysSince(2),
+                    duration: '3h',
                     id: 'Task 3',
                     progress: random(),
                 },
                 {
-                    start: daysSince(-3),
-                    duration: '4d',
                     name: 'Publish',
+                    start: daysSince(3),
+                    duration: '1d',
                     id: 'Task 4',
                     progress: random(),
                 },
@@ -556,10 +556,13 @@
                 },
             });
 
-            const ignore = new Gantt('#ignore', tasks, {
+            const ignore = new Gantt('#ignore', tasksSpread, {
                 ignore: ['weekend', ...HOLIDAYS.map((k) => k.date)],
                 holidays: null,
-                scroll_to: daysSince(-10),
+                snap_at: '15min',
+                scroll_to: 'today',
+                view_mode_select: true,
+                infinite_padding: false,
             });
 
             const styling = new Gantt('#styling', tasksMany, {

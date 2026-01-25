@@ -6,10 +6,47 @@ const MINUTE = 'minute';
 const SECOND = 'second';
 const MILLISECOND = 'millisecond';
 
+const units = {
+    'year': { 
+        short: 'y',
+        in_ms: 365 * 24 * 60 * 60 * 1000 
+    },
+    'month': { 
+        short: 'mo',
+        in_ms: 30 * 24 * 60 * 60 * 1000 
+    },
+    'week': { 
+        short: 'w',
+        in_ms: 7 * 24 * 60 * 60 * 1000 
+    },
+    'day': { 
+        short: 'd',
+        in_ms: 24 * 60 * 60 * 1000 
+    },
+    'hour': { 
+        short: 'h',
+        in_ms: 60 * 60 * 1000 
+    },
+    'minute': { 
+        short: 'min',
+        in_ms: 60 * 1000 
+    },
+    'second': { 
+        short: 's',
+        in_ms: 1000 
+    },
+    'millisecond': { 
+        short: 'ms',
+        in_ms: 1 
+    },
+}
+
+
 export default {
+    units,
     parse_duration(duration) {
-        const regex = /([0-9]+)(y|m|d|h|min|s|ms)/gm;
-        const matches = regex.exec(duration);
+        const regex = /([0-9]+)(min|ms|y|m|d|h|s)/;
+        const matches = duration.match(regex);
         if (matches !== null) {
             if (matches[2] === 'y') {
                 return { duration: parseInt(matches[1]), scale: `year` };
@@ -27,8 +64,10 @@ export default {
                 return { duration: parseInt(matches[1]), scale: `millisecond` };
             }
         }
+        console.warn(`invalid duration "${duration}", defaulting to 1 day`);
+        return { duration: 1, scale: `day` };
     },
-    parse(date, date_separator = '-', time_separator = /[.:]/) {
+    parse_date(date, date_separator = '-', time_separator = /[.:]/) {
         if (date instanceof Date) {
             return date;
         }
@@ -54,28 +93,6 @@ export default {
             }
             return new Date(...vals);
         }
-    },
-
-    to_string(date, with_time = false) {
-        if (!(date instanceof Date)) {
-            throw new TypeError('Invalid argument type');
-        }
-        const vals = this.get_date_values(date).map((val, i) => {
-            if (i === 1) {
-                // add 1 for month
-                val = val + 1;
-            }
-
-            if (i === 6) {
-                return padStart(val + '', 3, '0');
-            }
-
-            return padStart(val + '', 2, '0');
-        });
-        const date_string = `${vals[0]}-${vals[1]}-${vals[2]}`;
-        const time_string = `${vals[3]}:${vals[4]}:${vals[5]}.${vals[6]}`;
-
-        return date_string + (with_time ? ' ' + time_string : '');
     },
 
     format(date, date_format = 'YYYY-MM-DD HH:mm:ss.SSS', lang = 'en') {
@@ -128,7 +145,7 @@ export default {
         milliseconds =
             date_a -
             date_b +
-            (date_b.getTimezoneOffset() - date_a.getTimezoneOffset()) * 60000;
+            (date_b.getTimezoneOffset() - date_a.getTimezoneOffset()) * this.units.minute.in_ms;
         seconds = milliseconds / 1000;
         minutes = seconds / 60;
         hours = minutes / 60;
@@ -238,19 +255,22 @@ export default {
         ];
     },
 
-    convert_scales(period, to_scale) {
+    // TODO: 
+    // This function should be universal: unit a -> unit b
+    convert_to_unit(period, unit) {
+        const day_in_ms = this.units.day.in_ms;
         const TO_DAYS = {
-            millisecond: 1 / 60 / 60 / 24 / 1000,
-            second: 1 / 60 / 60 / 24,
-            minute: 1 / 60 / 24,
-            hour: 1 / 24,
+            millisecond: this.units.millisecond.in_ms / day_in_ms,
+            second: this.units.second.in_ms / day_in_ms,
+            minute: this.units.minute.in_ms / day_in_ms,
+            hour: this.units.day.in_ms / day_in_ms,
             day: 1,
-            month: 30,
-            year: 365,
+            month: this.units.month.in_ms / day_in_ms,
+            year: this.units.year.in_ms / day_in_ms,
         };
         const { duration, scale } = this.parse_duration(period);
         let in_days = duration * TO_DAYS[scale];
-        return in_days / TO_DAYS[to_scale];
+        return in_days / TO_DAYS[unit];
     },
 
     get_days_in_month(date) {
@@ -272,6 +292,143 @@ export default {
 
     get_days_in_year(date) {
         return date.getFullYear() % 4 ? 365 : 366;
+    },
+
+    /**
+     * Formats a duration in milliseconds into a human-readable string
+     * Shows only non-zero units in descending order: years, months, days, hours, minutes, seconds, milliseconds
+     * @param {number} ms - Duration in milliseconds
+     * @param {object} options - Formatting options
+     * @returns {string} Formatted duration string
+     */
+    format_duration(ms, options = {}) {
+        const {
+            showMilliseconds = true,
+            maxUnits = null,
+            shortForm = false,
+        } = options;
+
+        if (ms === 0) return shortForm ? '0ms' : '0 milliseconds';
+        if (ms < 0) return '-' + this.format_duration(-ms, options);
+
+        const unit_names = [
+            'year',
+            'month',
+            'week',
+            'day',
+            'hour',
+            'minute',
+            'second',
+        ]
+
+        if (showMilliseconds) {
+            unit_names.push('millisecond');
+        }
+
+        const parts = [];
+        let remainingMs = ms;
+
+        for (const name of unit_names) {
+            const count = Math.floor(remainingMs / this.units[name].in_ms);
+            if (count > 0) {
+                const label = shortForm
+                    ? this.units[name].short
+                    : count === 1
+                      ? name
+                      : name + 's';
+                const separator = shortForm ? '' : ' ';
+                parts.push(`${count}${separator}${label}`);
+                remainingMs -= count * this.units[name].in_ms;
+            }
+
+            if (maxUnits && parts.length >= maxUnits) {
+                break;
+            }
+        }
+
+        if (parts.length === 0 && !showMilliseconds) {
+            return shortForm ? '<1s' : 'less than 1 second';
+        }
+
+        return parts.join(shortForm ? ' ' : ', ');
+    },
+
+    /**
+     * Formats a date and time, showing only non-zero time units
+     * @param {Date} date - Date to format
+     * @param {object} options - Formatting options
+     * @returns {string} Smart formatted date and time string
+     */
+    format_datetime(date, options = {}) {
+        const {
+            lang = 'en',
+            showMilliseconds = true,
+            showSeconds = true,
+            showDate = true,
+            maxTimeUnits = null,
+        } = options;
+
+        const dateStr = this.format(date, 'MMM D, YYYY', lang);
+
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const seconds = date.getSeconds();
+        const milliseconds = date.getMilliseconds();
+
+        const timeParts = [];
+
+        if (hours > 0) {
+            timeParts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
+        }
+
+        if (minutes > 0) {
+            timeParts.push(
+                `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`,
+            );
+        }
+
+        if (showSeconds && seconds > 0) {
+            timeParts.push(
+                `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`,
+            );
+        }
+
+        if (showMilliseconds && milliseconds > 0) {
+            timeParts.push(
+                `${milliseconds} ${milliseconds === 1 ? 'millisecond' : 'milliseconds'}`,
+            );
+        }
+
+        if (maxTimeUnits && timeParts.length > maxTimeUnits) {
+            timeParts.splice(maxTimeUnits);
+        }
+
+        // Handle special cases - when all time components are zero
+        if (timeParts.length === 0) {
+            // For midnight (00:00:00.000), show "midnight" instead of "0 hours"
+            if (
+                hours === 0 &&
+                minutes === 0 &&
+                seconds === 0 &&
+                milliseconds === 0
+            ) {
+                timeParts.push('midnight');
+            } else if (showMilliseconds) {
+                timeParts.push('0 milliseconds');
+            } else if (showSeconds) {
+                timeParts.push('0 seconds');
+            } else {
+                timeParts.push('0 minutes');
+            }
+        }
+
+        const timeStr = timeParts.join(', ');
+
+        if (showDate) {
+            return `${dateStr} at ${timeStr}`;
+        } else {
+            return timeStr;
+        }
     },
 };
 

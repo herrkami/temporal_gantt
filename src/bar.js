@@ -57,6 +57,7 @@ export default class Bar {
         this.compute_y();
         this.compute_duration();
         this.corner_radius = this.gantt.options.bar_corner_radius;
+        // Use millisecond precision for width calculation
         this.width = this.gantt.config.column_width * this.duration;
         if (!this.task.progress || this.task.progress < 0)
             this.task.progress = 0;
@@ -162,14 +163,11 @@ export default class Bar {
         });
         if (this.task.color_progress)
             this.$bar_progress.style.fill = this.task.color_progress;
-        const x =
-            (date_utils.diff(
-                this.task._start,
-                this.gantt.gantt_start,
-                this.gantt.config.unit,
-            ) /
-                this.gantt.config.step) *
-            this.gantt.config.column_width;
+        // Use millisecond precision for progress bar position
+        const diff_ms =
+            this.task._start.getTime() - this.gantt.gantt_start.getTime();
+        const step_ms = this.gantt.config.view_mode.step_ms;
+        const x = (diff_ms / step_ms) * this.gantt.config.column_width;
 
         let $date_highlight = this.gantt.create_el({
             classes: `date-range-highlight hide highlight-${this.task.id}`,
@@ -185,12 +183,15 @@ export default class Bar {
     calculate_progress_width() {
         const width = this.$bar.getWidth();
         const ignored_end = this.x + width;
-        const total_ignored_area =
+        const total_ignored_width =
             this.gantt.config.ignored_positions.reduce((acc, val) => {
                 return acc + (val >= this.x && val < ignored_end);
             }, 0) * this.gantt.config.column_width;
-        let progress_width =
-            ((width - total_ignored_area) * this.task.progress) / 100;
+        
+        // Calculate progress based on working area (non-ignored portions)
+        const working_width = Math.max(0, width - total_ignored_width);
+        let progress_width = (working_width * this.task.progress) / 100;
+        
         const progress_end = this.x + progress_width;
         const total_ignored_progress =
             this.gantt.config.ignored_positions.reduce((acc, val) => {
@@ -209,6 +210,7 @@ export default class Bar {
                 this.x + progress_width,
             );
         }
+        
         this.progress_width = progress_width;
         return progress_width;
     }
@@ -434,9 +436,11 @@ export default class Bar {
             this.x = x;
             this.$date_highlight.style.left = x + 'px';
         }
-        if (width > 0) {
-            this.update_attr(bar, 'width', width);
-            this.$date_highlight.style.width = width + 'px';
+        if (width !== null && width !== undefined) {
+            // Ensure width is never negative
+            const safe_width = Math.max(0, width);
+            this.update_attr(bar, 'width', safe_width);
+            this.$date_highlight.style.width = safe_width + 'px';
         }
 
         this.update_label_position();
@@ -524,18 +528,17 @@ export default class Bar {
     compute_start_end_date() {
         const bar = this.$bar;
         const x_in_units = bar.getX() / this.gantt.config.column_width;
-        let new_start_date = date_utils.add(
-            this.gantt.gantt_start,
-            x_in_units * this.gantt.config.step,
-            this.gantt.config.unit,
+        const step_ms = this.gantt.config.view_mode.step_ms;
+
+        // Use millisecond precision for date calculations
+        const start_offset_ms = x_in_units * step_ms;
+        const new_start_date = new Date(
+            this.gantt.gantt_start.getTime() + start_offset_ms,
         );
 
         const width_in_units = bar.getWidth() / this.gantt.config.column_width;
-        const new_end_date = date_utils.add(
-            new_start_date,
-            width_in_units * this.gantt.config.step,
-            this.gantt.config.unit,
-        );
+        const duration_ms = width_in_units * step_ms;
+        const new_end_date = new Date(new_start_date.getTime() + duration_ms);
 
         return { new_start_date, new_end_date };
     }
@@ -543,18 +546,25 @@ export default class Bar {
     compute_progress() {
         this.progress_width = this.$bar_progress.getWidth();
         this.x = this.$bar_progress.getBBox().x;
-        const progress_area = this.x + this.progress_width;
+        const progress_total_width = this.x + this.progress_width;
         const progress =
             this.progress_width -
             this.gantt.config.ignored_positions.reduce((acc, val) => {
-                return acc + (val >= this.x && val <= progress_area);
+                return acc + (val >= this.x && val <= progress_total_width);
             }, 0) *
                 this.gantt.config.column_width;
         if (progress < 0) return 0;
+        
         const total =
             this.$bar.getWidth() -
             this.ignored_duration_raw * this.gantt.config.column_width;
-        return parseInt((progress / total) * 100, 10);
+        
+        // Prevent division by zero - if total is zero or negative, return 0%
+        if (total <= 0) return 0;
+        
+        // Ensure progress percentage is between 0 and 100
+        const progressPercent = parseInt((progress / total) * 100, 10);
+        return Math.max(0, Math.min(100, progressPercent));
     }
 
     compute_expected_progress() {
@@ -574,32 +584,10 @@ export default class Bar {
         const task_start = this.task._start;
         const gantt_start = this.gantt.gantt_start;
 
-        const diff =
-            date_utils.diff(task_start, gantt_start, this.gantt.config.unit) /
-            this.gantt.config.step;
-
-        let x = diff * column_width;
-
-        /* Since the column width is based on 30,
-        we count the month-difference, multiply it by 30 for a "pseudo-month"
-        and then add the days in the month, making sure the number does not exceed 29
-        so it is within the column */
-
-        // if (this.gantt.view_is('Month')) {
-        //     const diffDaysBasedOn30DayMonths =
-        //         date_utils.diff(task_start, gantt_start, 'month') * 30;
-        //     const dayInMonth = Math.min(
-        //         29,
-        //         date_utils.format(
-        //             task_start,
-        //             'DD',
-        //             this.gantt.options.language,
-        //         ),
-        //     );
-        //     const diff = diffDaysBasedOn30DayMonths + dayInMonth;
-
-        //     x = (diff * column_width) / 30;
-        // }
+        // Use millisecond precision for position calculation
+        const diff_ms = task_start.getTime() - gantt_start.getTime();
+        const step_ms = this.gantt.config.view_mode.step_ms;
+        const x = (diff_ms / step_ms) * column_width;
 
         this.x = x;
     }
@@ -612,12 +600,17 @@ export default class Bar {
     }
 
     compute_duration() {
+        // Calculate duration in milliseconds for precision
+        const total_ms = this.task._end.getTime() - this.task._start.getTime();
+        const step_ms = this.gantt.config.view_mode.step_ms;
+
+        // Calculate actual duration excluding ignored periods
         let actual_duration_in_days = 0,
             duration_in_days = 0;
         for (
             let d = new Date(this.task._start);
             d < this.task._end;
-            d.setDate(d.getDate() + 1)
+            d = new Date(d.getTime() + date_utils.units.day.in_ms)
         ) {
             duration_in_days++;
             if (
@@ -633,17 +626,11 @@ export default class Bar {
         this.task.actual_duration = actual_duration_in_days;
         this.task.ignored_duration = duration_in_days - actual_duration_in_days;
 
-        this.duration =
-            date_utils.convert_scales(
-                duration_in_days + 'd',
-                this.gantt.config.unit,
-            ) / this.gantt.config.step;
+        this.duration = total_ms / step_ms;
 
-        this.actual_duration_raw =
-            date_utils.convert_scales(
-                actual_duration_in_days + 'd',
-                this.gantt.config.unit,
-            ) / this.gantt.config.step;
+        const actual_duration_ms =
+            actual_duration_in_days * date_utils.units.day.in_ms;
+        this.actual_duration_raw = actual_duration_ms / step_ms;
 
         this.ignored_duration_raw = this.duration - this.actual_duration_raw;
     }
