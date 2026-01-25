@@ -225,7 +225,10 @@ const DEFAULT_OPTIONS = {
     view_mode: 'Day',
     view_mode_select: false,
     view_modes: DEFAULT_VIEW_MODES,
-    is_weekend: (d) => d.getDay() === 0 || d.getDay() === 6,
+    is_weekend: (instant) => {
+        const pdt = toPlainDateTime(ensureInstant(instant));
+        return pdt.dayOfWeek === 6 || pdt.dayOfWeek === 7;
+    },
 };
 
 export { DEFAULT_OPTIONS, DEFAULT_VIEW_MODES };
