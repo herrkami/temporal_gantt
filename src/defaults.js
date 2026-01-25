@@ -182,8 +182,8 @@ const DEFAULT_OPTIONS = {
         });
 
         // Calculate precise duration using epochMilliseconds
-        const startMs = ensureInstant(ctx.task.start).epochMilliseconds;
-        const endMs = ensureInstant(ctx.task.end).epochMilliseconds;
+        const startMs = ctx.task.start.epochMilliseconds;
+        const endMs = ctx.task.end.epochMilliseconds;
         const precise_duration = formatDuration(
             endMs - startMs,
             { showMilliseconds: false, maxUnits: 4 },

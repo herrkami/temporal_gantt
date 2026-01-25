@@ -244,7 +244,6 @@ export default class Gantt {
                 task_end_pdt.second === 0 && task_end_pdt.millisecond === 0) {
                 task.end = add(task.end, 24, 'hour');
             }
-            console.log(task);
             return task;
         })
             // Keep only non-false tasks
@@ -344,13 +343,13 @@ export default class Gantt {
         }
 
         for (let task of this.tasks) {
-            const taskStartMs = ensureInstant(task.start).epochMilliseconds;
-            const taskEndMs = ensureInstant(task.end).epochMilliseconds;
+            const taskStartMs = task.start.epochMilliseconds;
+            const taskEndMs = task.end.epochMilliseconds;
 
-            if (!gantt_start || taskStartMs < ensureInstant(gantt_start).epochMilliseconds) {
+            if (!gantt_start || taskStartMs < gantt_start.epochMilliseconds) {
                 gantt_start = task.start;
             }
-            if (!gantt_end || taskEndMs > ensureInstant(gantt_end).epochMilliseconds) {
+            if (!gantt_end || taskEndMs > gantt_end.epochMilliseconds) {
                 gantt_end = task.end;
             }
         }
@@ -400,12 +399,12 @@ export default class Gantt {
     }
 
     setup_date_values() {
-        let cur_instant = ensureInstant(this.gantt_start);
+        let cur_instant = this.gantt_start;
         this.dates = [cur_instant];
 
         // Use millisecond precision for date iteration
         const step_ms = this.config.view_mode.step_ms;
-        const gantt_end_ms = ensureInstant(this.gantt_end).epochMilliseconds;
+        const gantt_end_ms = this.gantt_end.epochMilliseconds;
 
         while (cur_instant.epochMilliseconds < gantt_end_ms) {
             cur_instant = Temporal.Instant.fromEpochMilliseconds(
@@ -691,8 +690,8 @@ export default class Gantt {
             }
 
             // Iterate through days
-            let currentMs = ensureInstant(this.gantt_start).epochMilliseconds;
-            const endMs = ensureInstant(this.gantt_end).epochMilliseconds;
+            let currentMs = this.gantt_start.epochMilliseconds;
+            const endMs = this.gantt_end.epochMilliseconds;
 
             while (currentMs <= endMs) {
                 const d = Temporal.Instant.fromEpochMilliseconds(currentMs);
@@ -761,7 +760,7 @@ export default class Gantt {
         el.classList.add('current-date-highlight');
 
         const nowMs = Temporal.Now.instant().epochMilliseconds;
-        const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
+        const ganttStartMs = this.gantt_start.epochMilliseconds;
         const diff_in_ms = nowMs - ganttStartMs;
         const step_ms = this.config.view_mode.step_ms;
 
@@ -799,8 +798,8 @@ export default class Gantt {
         </pattern>`;
 
         const dayMs = MS_PER_UNIT.day;
-        let currentMs = ensureInstant(this.gantt_start).epochMilliseconds;
-        const endMs = ensureInstant(this.gantt_end).epochMilliseconds;
+        let currentMs = this.gantt_start.epochMilliseconds;
+        const endMs = this.gantt_end.epochMilliseconds;
 
         while (currentMs <= endMs) {
             const d = Temporal.Instant.fromEpochMilliseconds(currentMs);
@@ -1015,7 +1014,7 @@ export default class Gantt {
 
         // Use millisecond precision for scroll position
         const dateMs = ensureInstant(date).epochMilliseconds;
-        const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
+        const ganttStartMs = this.gantt_start.epochMilliseconds;
         const ms_since_first_task = dateMs - ganttStartMs;
         const step_ms = this.config.view_mode.step_ms;
         const scroll_pos =
@@ -1072,8 +1071,8 @@ export default class Gantt {
 
     get_closest_date() {
         const nowMs = Temporal.Now.instant().epochMilliseconds;
-        const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
-        const ganttEndMs = ensureInstant(this.gantt_end).epochMilliseconds;
+        const ganttStartMs = this.gantt_start.epochMilliseconds;
+        const ganttEndMs = this.gantt_end.epochMilliseconds;
 
         if (nowMs < ganttStartMs || nowMs > ganttEndMs) return null;
 
@@ -1291,7 +1290,7 @@ export default class Gantt {
             }
 
             // Calculate current scroll position's upper text using milliseconds
-            const ganttStartMs = ensureInstant(this.gantt_start).epochMilliseconds;
+            const ganttStartMs = this.gantt_start.epochMilliseconds;
             const scroll_ms =
                 (e.currentTarget.scrollLeft / this.config.column_width) *
                 this.config.view_mode.step_ms;
@@ -1653,8 +1652,8 @@ export default class Gantt {
         return this.tasks
             .map((task) => task.start)
             .reduce((prev, cur) => {
-                const prevMs = ensureInstant(prev).epochMilliseconds;
-                const curMs = ensureInstant(cur).epochMilliseconds;
+                const prevMs = prev.epochMilliseconds;
+                const curMs = cur.epochMilliseconds;
                 return curMs <= prevMs ? cur : prev;
             });
     }
