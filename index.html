@@ -31,7 +31,6 @@
                 font-size: 0.775em;
             }
         </style>
-        <script src="dist/frappe-gantt.umd.js"></script>
     </head>
     <body>
         <div class="container">
@@ -316,6 +315,8 @@
             </div>
         </div>
         <script type="module">
+            import Gantt from './src/index.js';
+
             const rawToday = new Date();
             const today =
                 Date.UTC(
