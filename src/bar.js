@@ -456,8 +456,7 @@ export default class Bar {
     }
 
     update_label_position_on_horizontal_scroll({ x, sx }) {
-        const container =
-            this.gantt.$container.querySelector('.gantt-container');
+        const container = this.gantt.$container;
         const label = this.group.querySelector('.bar-label');
         const img = this.group.querySelector('.bar-img') || '';
         const img_mask = this.bar_group.querySelector('.img_mask') || '';

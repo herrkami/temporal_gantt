@@ -136,6 +136,17 @@
                             >Show weekends</label
                         >
                     </div>
+                    <div class="form-check form-switch">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            role="switch"
+                            id="custom-weekends"
+                        />
+                        <label class="form-check-label" for="custom-weekends"
+                            >Custom weekends</label
+                        >
+                    </div>
                 </div>
                 <div class="chart col-md-9" id="holidays"></div>
             </div>
@@ -601,6 +612,11 @@
                             { '#a3e635': HOLIDAYS, '#bfdbfe': 'weekend' },
                             { '#a3e635': HOLIDAYS, '#bfdbfe': [] },
                         ],
+                        'custom-weekends': [
+                            'is_weekend',
+                            (d) => d.getDay() === 6 || d.getDay() === 5,
+                            (d) => d.getDay() === 0 || d.getDay() === 6,
+                        ]
                     },
                 ],
                 [
@@ -680,105 +696,6 @@
                     };
                 }
             }
-
-            // const OPTIONS_UPDATE = [
-            //     // [
-            //     //     styling,
-            //     //     {
-            //     //         'bar-spacing': {
-            //     //             bar_corner_radius: [
-            //     //                 'config',
-            //     //                 () =>
-            //     //                     +document.getElementById('bar-radius')
-            //     //                         .value,
-            //     //                 ,
-            //     //             ],
-            //     //             bar_height: [
-            //     //                 'config',
-            //     //                 () =>
-            //     //                     +document.getElementById('bar-height')
-            //     //                         .value,
-            //     //             ],
-            //     //             arrow_curve: [
-            //     //                 'config',
-            //     //                 () =>
-            //     //                     +document.getElementById('arrow-curve')
-            //     //                         .value,
-            //     //             ],
-            //     //         },
-            //     //     },
-            //     // ],
-            //     [
-            //         advanced,
-            //         {
-            //             'snap-by': {
-            //                 BEFORE: (chart) => chart.$container.scrollLeft,
-            //                 snap_at: [
-            //                     'config',
-            //                     (scale) => {
-            //                         return (
-            //                             document.getElementById('snap-at-qty')
-            //                                 .value +
-            //                             document.getElementById('snap-at-scale')
-            //                                 .value
-            //                         );
-            //                     },
-            //                 ],
-            //                 view_mode: ['config', (k) => k],
-            //                 scroll_to: ['config', (_) => false],
-            //                 AFTER: (before, chart) =>
-            //                     (chart.$container.scrollLeft = before),
-            //             },
-            //             'auto-move-label': {
-            //                 BEFORE: (chart) =>
-            //                     chart.change_view_mode('Day') ||
-            //                     chart.$container.scrollLeft,
-            //                 view_mode: ['config', (k) => k],
-            //                 auto_move_label: 'opp',
-            //                 scroll_to: ['config', (_) => false],
-            //                 AFTER: (before, chart) =>
-            //                     (chart.$container.scrollLeft = before),
-            //             },
-            //         },
-            //     ],
-            // ];
-
-            // for (let [chart, options] of OPTIONS_UPDATE) {
-            //     for (let id in options) {
-            //         let el = document.getElementById(id);
-            //         el.onclick = () => {
-            //             const before =
-            //                 options[id].BEFORE && options[id].BEFORE(chart);
-            //             let newOptions = {};
-            //             for (let k in options[id]) {
-            //                 if (k === 'AFTER' || k === 'BEFORE') continue;
-            //                 if (options[id][k] === 'opp') {
-            //                     newOptions[k] = !chart.options[k];
-            //                     if (chart.options[k]) {
-            //                         el.innerHTML = el.innerHTML.replace(
-            //                             'Hide',
-            //                             'Show',
-            //                         );
-            //                     } else {
-            //                         el.innerHTML = el.innerHTML.replace(
-            //                             'Show',
-            //                             'Hide',
-            //                         );
-            //                     }
-            //                 } else if (options[id][k][0] === 'config') {
-            //                     newOptions[k] = options[id][k][1](
-            //                         chart.options[k],
-            //                         chart,
-            //                     );
-            //                 } else {
-            //                     newOptions[k] = options[id][k];
-            //                 }
-            //             }
-            //             chart.update_options(newOptions);
-            //             options[id].AFTER && options[id].AFTER(before, chart);
-            //         };
-            //     }
-            // }
         </script>
         <script
             src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
