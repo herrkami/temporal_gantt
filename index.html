@@ -327,6 +327,7 @@
         </div>
         <script type="module">
             import Gantt from './src/index.js';
+            import {toPlainDateTime, ensureInstant} from './src/temporal_utils.js'
 
             const rawToday = new Date();
             const today =
@@ -614,8 +615,8 @@
                         ],
                         'custom-weekends': [
                             'is_weekend',
-                            (d) => d.getDay() === 6 || d.getDay() === 5,
-                            (d) => d.getDay() === 0 || d.getDay() === 6,
+                            (instant) => toPlainDateTime(ensureInstant(instant)).dayOfWeek === 5 ||
+                                         toPlainDateTime(ensureInstant(instant)).dayOfWeek === 6,
                         ]
                     },
                 ],
