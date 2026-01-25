@@ -62,7 +62,7 @@ export function ensureInstant(input) {
  * @returns {Temporal.PlainDateTime}
  */
 export function toPlainDateTime(instant) {
-    return ensureInstant(instant).toZonedDateTimeISO(DEFAULT_TIMEZONE).toPlainDateTime();
+    return instant.toZonedDateTimeISO(DEFAULT_TIMEZONE).toPlainDateTime();
 }
 
 /**
@@ -72,15 +72,6 @@ export function toPlainDateTime(instant) {
  */
 export function toInstant(pdt) {
     return pdt.toZonedDateTime(DEFAULT_TIMEZONE).toInstant();
-}
-
-/**
- * Convert Instant to native Date for API output
- * @param {Temporal.Instant} instant
- * @returns {Date}
- */
-export function toNativeDate(instant) {
-    return new Date(ensureInstant(instant).epochMilliseconds);
 }
 
 /**
@@ -328,11 +319,8 @@ export function format(instant, formatStr = 'YYYY-MM-DD HH:mm:ss.SSS', lang = 'e
     const inst = ensureInstant(instant);
     const pdt = toPlainDateTime(inst);
 
-    // Get month names via Intl
-    const nativeDate = toNativeDate(inst);
-    const monthFormatter = new Intl.DateTimeFormat(lang, { month: 'long' });
-    const monthShortFormatter = new Intl.DateTimeFormat(lang, { month: 'short' });
-    const monthName = monthFormatter.format(nativeDate);
+    // Get localized month names directly from PlainDateTime
+    const monthName = pdt.toLocaleString(lang, { month: 'long' });
     const monthNameCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
 
     const formatMap = {
@@ -345,7 +333,7 @@ export function format(instant, formatStr = 'YYYY-MM-DD HH:mm:ss.SSS', lang = 'e
         'ss': String(pdt.second).padStart(2, '0'),
         'SSS': String(pdt.millisecond).padStart(3, '0'),
         'MMMM': monthNameCapitalized,
-        'MMM': monthShortFormatter.format(nativeDate),
+        'MMM': pdt.toLocaleString(lang, { month: 'short' }),
     };
 
     let result = formatStr;
