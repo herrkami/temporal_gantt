@@ -27,7 +27,7 @@ export default class Gantt {
     constructor(wrapper, tasks, options) {
         this.setup_wrapper(wrapper);
         this.setup_options(options);
-        this.setup_tasks(tasks);
+        this.load_task_list(tasks);
         this.change_view_mode();
         this.bind_events();
     }
@@ -137,67 +137,100 @@ export default class Gantt {
         this.change_view_mode(undefined, true);
     }
 
-    setup_tasks(tasks) {
-        this.tasks = tasks.map((task, i) => {
-            if (!task.start) {
+    load_task_list(task_list) {
+        // TODO This function should only read the task description. Deriving
+        // missing start/end/duration should happen in a separate scheduler.
+        this.tasks = task_list.map((task_raw, i) => {
+            let task = {};
+
+            task.name = task_raw.name;
+            task.progress = task_raw.progress;
+
+            // Start must be defined
+            if (!task_raw.start) {
                 console.error(
-                    `task "${task.id}" doesn't have a start date`,
+                    `task "${task_raw.name}" (ID: "${task_raw.id}") doesn't have a start date`,
                 );
                 return false;
+            } else {
+                task.start = parseInstant(task_raw.start);
             }
 
-            task._start = parseInstant(task.start);
-            if (task.end === undefined && task.duration !== undefined) {
-                task.end = task._start;
-                let durations = task.duration.split(' ');
-
-                durations.forEach((tmpDuration) => {
+            // Parse duration if defined
+            if (task_raw.duration !== undefined) {
+                // E.g. '4h 30min'
+                task_raw.duration.split(' ').forEach((ds) => {
                     let { value, unit } =
-                        parseDurationString(tmpDuration);
-                    task.end = add(task.end, value, unit);
+                        parseDurationString(ds);
+                    task.end = add(task.start, value, unit);
+                    task.duration = diff(task.end, task.start);
                 });
             }
+
+            // Parse end if defined
+            if (task_raw.end !== undefined) {
+                const desc_end = parseInstant(task_raw.end);
+                if (task.end !== undefined) {
+                    // End has already been derived from duration
+                    if (Temporal.Instant.compare(task.end, desc_end) != 0) {
+                        // Redundantly consistent
+                        console.warn(
+                            `end of task "${task_raw.name}" (ID: "${task_raw.id}") is redundantly defined by duration`,
+                        );
+                    } else {
+                        // Duration and end inconsistent
+                        console.error(
+                            `end date of task "${task_raw.name}" (ID: "${task_raw.id}") contradicts its start and duration`,
+                        );
+                        return false;
+                    }
+                } else {
+                    task.end = desc_end;
+                }
+            }
+
+            // Neither duration nor end were defined
             if (!task.end) {
-                console.error(`task "${task.id}" doesn't have an end date`);
+                console.error(`task "${task_raw.name}" (ID: "${task_raw.id}") has neither end date nor duration`);
                 return false;
             }
-            task._end = parseInstant(task.end);
 
             // Check if end is before start
-            if (Temporal.Instant.compare(task._end, task._start) < 0) {
+            if (Temporal.Instant.compare(task.end, task.start) < 0) {
                 console.error(
-                    `start of task can't be after end of task: in task "${task.id}"`,
+                    `start of task can't be after end of task: in task "${task_raw.name}" (ID: "${task_raw.id}")`,
                 );
                 return false;
             }
 
-            // make task invalid if duration too large
-            if (diff(task._end, task._start, 'year') > 10) {
+            // Invalidate task if duration too large
+            if (diff(task.end, task.start, 'year') > 10) {
                 console.error(
-                    `the duration of task "${task.id}" is too long (above ten years)`,
+                    `the duration of task "${task_raw.name}" (ID: "${task_raw.id}") is too long (above ten years)`,
                 );
                 return false;
             }
 
-            // cache index
+            // Cache index
             task._index = i;
 
-            // if hours is not set, assume the last day is full day
+            // TODO: This check should be performed on the task description earlier
+            // If hours is not set, assume the last day is a full day
             // e.g: 2018-09-09 becomes 2018-09-09 23:59:59
-            const task_end_pdt = toPlainDateTime(task._end);
+            const task_end_pdt = toPlainDateTime(task.end);
             if (task_end_pdt.hour === 0 && task_end_pdt.minute === 0 &&
                 task_end_pdt.second === 0 && task_end_pdt.millisecond === 0) {
-                task._end = add(task._end, 24, 'hour');
+                task.end = add(task.end, 24, 'hour');
             }
 
-            // dependencies
+            // Dependencies
             if (
-                typeof task.dependencies === 'string' ||
-                !task.dependencies
+                typeof task_raw.dependencies === 'string' ||
+                !task_raw.dependencies
             ) {
                 let deps = [];
-                if (task.dependencies) {
-                    deps = task.dependencies
+                if (task_raw.dependencies) {
+                    deps = task_raw.dependencies
                         .split(',')
                         .map((d) => d.trim().replaceAll(' ', '_'))
                         .filter((d) => d);
@@ -205,17 +238,19 @@ export default class Gantt {
                 task.dependencies = deps;
             }
 
-            // uids
-            if (!task.id) {
-                task.id = generate_id(task);
-            } else if (typeof task.id === 'string') {
-                task.id = task.id.replaceAll(' ', '_');
+            // Unique IDs
+            if (!task_raw.id) {
+                task.uid = generate_uid(task_raw);
+            } else if (typeof task_raw.id === 'string') {
+                task.uid = task_raw.id.replaceAll(' ', '_');
             } else {
-                task.id = `${task.id}`;
+                // TODO looks a bit unsafe
+                task.uid = `${task_raw.id}`;
             }
 
             return task;
         })
+            // Keep only non-false tasks
             .filter((t) => t);
         this.setup_dependencies();
     }
@@ -231,7 +266,7 @@ export default class Gantt {
     }
 
     refresh(tasks) {
-        this.setup_tasks(tasks);
+        this.load_task_list(tasks);
         this.change_view_mode();
     }
 
@@ -312,14 +347,14 @@ export default class Gantt {
         }
 
         for (let task of this.tasks) {
-            const taskStartMs = ensureInstant(task._start).epochMilliseconds;
-            const taskEndMs = ensureInstant(task._end).epochMilliseconds;
+            const taskStartMs = ensureInstant(task.start).epochMilliseconds;
+            const taskEndMs = ensureInstant(task.end).epochMilliseconds;
 
             if (!gantt_start || taskStartMs < ensureInstant(gantt_start).epochMilliseconds) {
-                gantt_start = task._start;
+                gantt_start = task.start;
             }
             if (!gantt_end || taskEndMs > ensureInstant(gantt_end).epochMilliseconds) {
-                gantt_end = task._end;
+                gantt_end = task.end;
             }
         }
 
@@ -948,8 +983,8 @@ export default class Gantt {
         for (let bar of this.bars) {
             bar.arrows = this.arrows.filter((arrow) => {
                 return (
-                    arrow.from_task.task.id === bar.task.id ||
-                    arrow.to_task.task.id === bar.task.id
+                    arrow.from_task.task.uid === bar.task.uid ||
+                    arrow.to_task.task.uid === bar.task.uid
                 );
             });
         }
@@ -1352,7 +1387,7 @@ export default class Gantt {
                 $bar.finaldx = this.get_snap_position(dx, $bar.ox);
                 this.hide_popup();
                 if (is_resizing_left) {
-                    if (parent_bar_id === bar.task.id) {
+                    if (parent_bar_id === bar.task.uid) {
                         bar.update_bar_position({
                             x: $bar.ox + $bar.finaldx,
                             width: $bar.owidth - $bar.finaldx,
@@ -1363,7 +1398,7 @@ export default class Gantt {
                         });
                     }
                 } else if (is_resizing_right) {
-                    if (parent_bar_id === bar.task.id) {
+                    if (parent_bar_id === bar.task.uid) {
                         bar.update_bar_position({
                             width: $bar.owidth + $bar.finaldx,
                         });
@@ -1578,13 +1613,13 @@ export default class Gantt {
 
     get_task(id) {
         return this.tasks.find((task) => {
-            return task.id === id;
+            return task.uid === id;
         });
     }
 
     get_bar(id) {
         return this.bars.find((bar) => {
-            return bar.task.id === id;
+            return bar.task.uid === id;
         });
     }
 
@@ -1619,7 +1654,7 @@ export default class Gantt {
     get_oldest_starting_date() {
         if (!this.tasks.length) return Temporal.Now.instant();
         return this.tasks
-            .map((task) => task._start)
+            .map((task) => task.start)
             .reduce((prev, cur) => {
                 const prevMs = ensureInstant(prev).epochMilliseconds;
                 const curMs = ensureInstant(cur).epochMilliseconds;
@@ -1652,7 +1687,9 @@ Gantt.VIEW_MODE = {
     YEAR: DEFAULT_VIEW_MODES[6],
 };
 
-function generate_id(task) {
+function generate_uid(task) {
+    // TODO
+    // Could be better
     return task.name + '_' + Math.random().toString(36).slice(2, 12);
 }
 
