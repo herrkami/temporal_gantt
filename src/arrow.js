@@ -91,8 +91,8 @@ export default class Arrow {
     draw() {
         this.element = createSVG('path', {
             d: this.path,
-            'data-from': this.from_task.task.id,
-            'data-to': this.to_task.task.id,
+            'data-from': this.from_task.task.uid,
+            'data-to': this.to_task.task.uid,
         });
     }
 

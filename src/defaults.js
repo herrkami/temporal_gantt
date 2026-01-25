@@ -170,20 +170,20 @@ const DEFAULT_OPTIONS = {
         if (ctx.task.description) ctx.set_subtitle(ctx.task.description);
         else ctx.set_subtitle('');
 
-        const start_time = formatDatetime(ctx.task._start, {
+        const start_time = formatDatetime(ctx.task.start, {
             lang: ctx.chart.options.language,
             showMilliseconds: false,
             maxTimeUnits: 3,
         });
-        const end_time = formatDatetime(ctx.task._end, {
+        const end_time = formatDatetime(ctx.task.end, {
             lang: ctx.chart.options.language,
             showMilliseconds: false,
             maxTimeUnits: 3,
         });
 
         // Calculate precise duration using epochMilliseconds
-        const startMs = ensureInstant(ctx.task._start).epochMilliseconds;
-        const endMs = ensureInstant(ctx.task._end).epochMilliseconds;
+        const startMs = ensureInstant(ctx.task.start).epochMilliseconds;
+        const endMs = ensureInstant(ctx.task.end).epochMilliseconds;
         const precise_duration = formatDuration(
             endMs - startMs,
             { showMilliseconds: false, maxUnits: 4 },

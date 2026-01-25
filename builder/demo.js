@@ -179,7 +179,7 @@ const popup = new Gantt('#popup', tasksBlank, {
         else ctx.set_subtitle('');
 
         ctx.set_details(
-            `<em>Duration</em>: ${ctx.task.actual_duration} days<br/><em>Dates</em>: ${ctx.task._start.toLocaleDateString('en-US')} - ${ctx.task._end.toLocaleDateString('en-US')}`,
+            `<em>Duration</em>: ${ctx.task.actual_duration} days<br/><em>Dates</em>: ${ctx.task.start.toLocaleDateString('en-US')} - ${ctx.task.end.toLocaleDateString('en-US')}`,
         );
         let details = ctx.get_details();
         details.style.lineHeight = '1.75';
@@ -188,7 +188,7 @@ const popup = new Gantt('#popup', tasksBlank, {
             if (!ctx.chart.options.readonly_progress) {
                 ctx.add_action('Set Color', (task, chart) => {
                     const bar = chart.bars.find(
-                        ({ task: t }) => t.id === task.id,
+                        ({ task: t }) => t.uid === task.uid,
                     ).$bar;
                     bar.style.fill = `hsla(${~~(360 * Math.random())}, 70%,  72%, 0.8)`;
                 });

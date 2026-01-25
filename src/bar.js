@@ -35,7 +35,7 @@ export default class Bar {
             class:
                 'bar-wrapper' +
                 (this.task.custom_class ? ' ' + this.task.custom_class : ''),
-            'data-id': this.task.id,
+            'data-id': this.task.uid,
         });
         this.bar_group = createSVG('g', {
             class: 'bar-group',
@@ -51,8 +51,8 @@ export default class Bar {
         this.invalid = this.task.invalid;
         this.height = this.gantt.options.bar_height;
         this.image_size = this.height - 5;
-        this.task._start = ensureInstant(this.task.start);
-        this.task._end = ensureInstant(this.task.end);
+        this.task.start = ensureInstant(this.task.start);
+        this.task.end = ensureInstant(this.task.end);
         this.compute_x();
         this.compute_y();
         this.compute_duration();
@@ -165,13 +165,13 @@ export default class Bar {
             this.$bar_progress.style.fill = this.task.color_progress;
         // Use millisecond precision for progress bar position
         const diff_ms =
-            ensureInstant(this.task._start).epochMilliseconds -
+            ensureInstant(this.task.start).epochMilliseconds -
             ensureInstant(this.gantt.gantt_start).epochMilliseconds;
         const step_ms = this.gantt.config.view_mode.step_ms;
         const x = (diff_ms / step_ms) * this.gantt.config.column_width;
 
         let $date_highlight = this.gantt.create_el({
-            classes: `date-range-highlight hide highlight-${this.task.id}`,
+            classes: `date-range-highlight hide highlight-${this.task.uid}`,
             width: this.width,
             left: x,
         });
@@ -244,7 +244,7 @@ export default class Bar {
         });
 
         createSVG('rect', {
-            id: 'rect_' + this.task.id,
+            id: 'rect_' + this.task.uid,
             x: this.x + x_offset,
             y: this.y + y_offset,
             width: this.image_size,
@@ -255,12 +255,12 @@ export default class Bar {
         });
 
         clipPath = createSVG('clipPath', {
-            id: 'clip_' + this.task.id,
+            id: 'clip_' + this.task.uid,
             append_to: defs,
         });
 
         createSVG('use', {
-            href: '#rect_' + this.task.id,
+            href: '#rect_' + this.task.uid,
             append_to: clipPath,
         });
 
@@ -271,7 +271,7 @@ export default class Bar {
             height: this.image_size,
             class: 'bar-img',
             href: this.task.thumbnail,
-            clipPath: 'clip_' + this.task.id,
+            clipPath: 'clip_' + this.task.uid,
             append_to: this.bar_group,
         });
     }
@@ -333,7 +333,7 @@ export default class Bar {
     }
 
     setup_click_event() {
-        let task_id = this.task.id;
+        let task_id = this.task.uid;
         $.on(this.group, 'mouseover', (e) => {
             this.gantt.trigger_event('hover', [
                 this.task,
@@ -496,18 +496,18 @@ export default class Bar {
         let changed = false;
         const { new_start_instant, new_end_instant } = this.compute_start_end_instant();
 
-        const startMs = ensureInstant(this.task._start).epochMilliseconds;
+        const startMs = ensureInstant(this.task.start).epochMilliseconds;
         const newStartMs = ensureInstant(new_start_instant).epochMilliseconds;
         if (startMs !== newStartMs) {
             changed = true;
-            this.task._start = new_start_instant;
+            this.task.start = new_start_instant;
         }
 
-        const endMs = ensureInstant(this.task._end).epochMilliseconds;
+        const endMs = ensureInstant(this.task.end).epochMilliseconds;
         const newEndMs = ensureInstant(new_end_instant).epochMilliseconds;
         if (endMs !== newEndMs) {
             changed = true;
-            this.task._end = new_end_instant;
+            this.task.end = new_end_instant;
         }
 
         if (!changed) return;
@@ -579,7 +579,7 @@ export default class Bar {
 
     compute_expected_progress() {
         this.expected_progress =
-            diff(today(), this.task._start, 'hour') /
+            diff(today(), this.task.start, 'hour') /
             this.gantt.config.step;
         this.expected_progress =
             ((this.expected_progress < this.duration
@@ -591,7 +591,7 @@ export default class Bar {
 
     compute_x() {
         const { column_width } = this.gantt.config;
-        const task_start = ensureInstant(this.task._start);
+        const task_start = ensureInstant(this.task.start);
         const gantt_start = ensureInstant(this.gantt.gantt_start);
 
         // Use millisecond precision for position calculation
@@ -611,8 +611,8 @@ export default class Bar {
 
     compute_duration() {
         // Calculate duration in milliseconds for precision
-        const start_ms = ensureInstant(this.task._start).epochMilliseconds;
-        const end_ms = ensureInstant(this.task._end).epochMilliseconds;
+        const start_ms = ensureInstant(this.task.start).epochMilliseconds;
+        const end_ms = ensureInstant(this.task.end).epochMilliseconds;
         const total_ms = end_ms - start_ms;
         const step_ms = this.gantt.config.view_mode.step_ms;
 
@@ -621,8 +621,8 @@ export default class Bar {
             duration_in_days = 0;
 
         // Iterate through days using Temporal
-        let current = ensureInstant(this.task._start);
-        const end = ensureInstant(this.task._end);
+        let current = ensureInstant(this.task.start);
+        const end = ensureInstant(this.task.end);
         const dayMs = MS_PER_UNIT.day;
 
         while (current.epochMilliseconds < end.epochMilliseconds) {

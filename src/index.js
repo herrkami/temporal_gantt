@@ -143,8 +143,30 @@ export default class Gantt {
         this.tasks = task_list.map((task_raw, i) => {
             let task = {};
 
+            // Copy name
             task.name = task_raw.name;
+            // Copy progress
             task.progress = task_raw.progress;
+
+            // Copy or assign unique ID
+            if (!task_raw.id) {
+                task.uid = generate_uid(task_raw);
+            } else if (typeof task_raw.id === 'string') {
+                task.uid = task_raw.id.replaceAll(' ', '_');
+            } else {
+                // TODO looks a bit unsafe
+                task.uid = `${task_raw.id}`;
+            }
+
+            // Dependencies
+            let deps = [];
+            if (typeof task_raw.dependencies === 'string') {
+                deps = task_raw.dependencies
+                    .split(',')
+                    .map((d) => d.trim().replaceAll(' ', '_'))
+                    .filter((d) => d);
+            }
+            task.dependencies = deps;
 
             // Start must be defined
             if (!task_raw.start) {
@@ -222,32 +244,7 @@ export default class Gantt {
                 task_end_pdt.second === 0 && task_end_pdt.millisecond === 0) {
                 task.end = add(task.end, 24, 'hour');
             }
-
-            // Dependencies
-            if (
-                typeof task_raw.dependencies === 'string' ||
-                !task_raw.dependencies
-            ) {
-                let deps = [];
-                if (task_raw.dependencies) {
-                    deps = task_raw.dependencies
-                        .split(',')
-                        .map((d) => d.trim().replaceAll(' ', '_'))
-                        .filter((d) => d);
-                }
-                task.dependencies = deps;
-            }
-
-            // Unique IDs
-            if (!task_raw.id) {
-                task.uid = generate_uid(task_raw);
-            } else if (typeof task_raw.id === 'string') {
-                task.uid = task_raw.id.replaceAll(' ', '_');
-            } else {
-                // TODO looks a bit unsafe
-                task.uid = `${task_raw.id}`;
-            }
-
+            console.log(task);
             return task;
         })
             // Keep only non-false tasks
@@ -260,7 +257,7 @@ export default class Gantt {
         for (let t of this.tasks) {
             for (let d of t.dependencies) {
                 this.dependency_map[d] = this.dependency_map[d] || [];
-                this.dependency_map[d].push(t.id);
+                this.dependency_map[d].push(t.uid);
             }
         }
     }
@@ -271,7 +268,7 @@ export default class Gantt {
     }
 
     update_task(id, new_details) {
-        let task = this.tasks.find((t) => t.id === id);
+        let task = this.tasks.find((t) => t.uid === id);
         let bar = this.bars[task._index];
         Object.assign(task, new_details);
         bar.refresh();
