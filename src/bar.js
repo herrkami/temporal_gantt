@@ -161,14 +161,11 @@ export default class Bar {
         });
         if (this.task.color_progress)
             this.$bar_progress.style.fill = this.task.color_progress;
-        // Calculate position using Duration
-        const diff_in_units = diff(this.task.start, this.gantt.grid.start, this.gantt.config.step.unit);
-        const x = (diff_in_units / this.gantt.config.step.interval) * this.gantt.config.step.column_width;
 
         let $date_highlight = this.gantt.create_el({
             classes: `date-range-highlight hide highlight-${this.task.uid}`,
             width: this.width,
-            left: x,
+            left: this.x,
         });
         this.$date_highlight = $date_highlight;
         this.gantt.$lower_header.prepend(this.$date_highlight);
@@ -524,17 +521,8 @@ export default class Bar {
 
     compute_start_end_instant() {
         const bar = this.$bar;
-        const x_in_units = bar.getX() / this.gantt.config.step.column_width;
-        const width_in_units = bar.getWidth() / this.gantt.config.step.column_width;
-
-        // Calculate start by adding the offset units to gantt_start
-        const start_offset = x_in_units * this.gantt.config.step.interval;
-        const new_start_instant = add(this.gantt.grid.start, start_offset, this.gantt.config.step.unit);
-
-        // Calculate end by adding the duration units to start
-        const duration_in_units = width_in_units * this.gantt.config.step.interval;
-        const new_end_instant = add(new_start_instant, duration_in_units, this.gantt.config.step.unit);
-
+        const new_start_instant = this.gantt.viewport.xToDate(bar.getX());
+        const new_end_instant = this.gantt.viewport.xToDate(bar.getX() + bar.getWidth());
         return { new_start_instant, new_end_instant };
     }
 
@@ -575,15 +563,7 @@ export default class Bar {
     }
 
     compute_x() {
-        const { column_width } = this.gantt.config.step;
-        const task_start = this.task.start;
-        const gantt_start = this.gantt.grid.start;
-
-        // Calculate position using Duration
-        const diff_in_units = diff(task_start, gantt_start, this.gantt.config.step.unit);
-        const x = (diff_in_units / this.gantt.config.step.interval) * column_width;
-
-        this.x = x;
+        this.x = this.gantt.viewport.dateToX(this.task.start);
     }
 
     compute_y() {

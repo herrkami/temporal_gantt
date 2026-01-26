@@ -12,13 +12,13 @@ import {
     format,
     getDaysInMonth,
     getDaysInYear,
-    convertToUnit,
 } from './temporal_utils';
 import { $, createSVG } from './svg_utils';
 
 import Arrow from './arrow';
 import Bar from './bar';
 import Popup from './popup';
+import Viewport from './viewport';
 
 import { DEFAULT_OPTIONS, DEFAULT_VIEW_MODES } from './defaults';
 
@@ -301,19 +301,22 @@ export default class Gantt {
         if (typeof mode === 'string') {
             mode = this.options.view_modes.find((d) => d.name === mode);
         }
-        let old_pos, old_scroll_op;
-        if (maintain_pos) {
-            old_pos = this.$container.scrollLeft;
+        let old_date, old_scroll_op;
+        if (maintain_pos && this.viewport) {
+            // Save the date at current scroll position, not the pixel position
+            old_date = this.viewport.xToDate(this.$container.scrollLeft);
             old_scroll_op = this.options.scroll_to;
             this.options.scroll_to = null;
         }
         this.options.view_mode = mode.name;
         this.config.view_mode = mode;
         this.update_view_mode(mode);
-        this.setup_grid_dates(maintain_pos);
+        this.setup_grid_dates(maintain_pos, old_date);
         this.render();
-        if (maintain_pos) {
-            this.$container.scrollLeft = old_pos;
+        if (maintain_pos && old_date) {
+            // Convert the saved date back to new pixel position
+            const new_pos = this.viewport.dateToX(old_date);
+            this.$container.scrollLeft = new_pos;
             this.options.scroll_to = old_scroll_op;
         }
         this.trigger_event('view_change', [mode]);
@@ -350,12 +353,46 @@ export default class Gantt {
             10;
     }
 
-    setup_grid_dates(refresh = false) {
-        this.setup_grid_range(refresh);
+    setup_grid_dates(refresh = false, target_date = null) {
+        this.setup_grid_range(refresh, target_date);
         this.setup_grid_date_values();
+        this.setup_viewport();
     }
 
-    setup_grid_range(refresh) {
+    setup_viewport() {
+        const viewportOptions = {
+            visible: {
+                start: this.grid.start,
+                end: this.grid.end,
+            },
+            columnWidth: this.config.step.column_width,
+            stepInterval: this.config.step.interval,
+            stepUnit: this.config.step.unit,
+        };
+
+        // For infinite_padding mode, bounds are undefined (infinite scroll)
+        // For fixed padding mode, bounds equal visible (no scroll beyond)
+        if (!this.options.infinite_padding) {
+            viewportOptions.bounds = {
+                min: this.grid.start,
+                max: this.grid.end,
+            };
+        }
+
+        if (this.viewport) {
+            // Update existing viewport
+            this.viewport.setScale(
+                this.config.step.column_width,
+                this.config.step.interval,
+                this.config.step.unit
+            );
+            this.viewport.setVisible(this.grid.start, this.grid.end);
+        } else {
+            this.viewport = new Viewport(viewportOptions);
+        }
+    }
+
+    setup_grid_range(refresh, target_date = null) {
         let gantt_start;
         if (!this.tasks.length) {
             gantt_start = Temporal.Now.instant();
@@ -396,26 +433,43 @@ export default class Gantt {
         }
 
         // Sets gantt_end
-        this.extend_grid_to_fill_viewport();
+        this.extend_grid_to_fill_viewport(target_date);
 
         this.config.date_format =
             this.config.view_mode.date_format || this.options.date_format;
     }
 
-    extend_grid_to_fill_viewport() {
+    extend_grid_to_fill_viewport(target_date = null) {
         const container_width = this.$container?.clientWidth || 0;
         if (!container_width) return;
 
         // Calculate minimum columns needed to fill the viewport (plus a small buffer)
         const columns_in_viewport = Math.ceil(container_width / this.config.step.column_width) + 1;
 
-        // Calculate current number of columns based on the time span
-        // const span_in_units = diff(this.grid.end, this.grid.start, this.config.step.unit);
-        // const current_columns = Math.ceil(span_in_units / this.config.step.interval);
-
         // Extend gantt_end if we don't have enough columns
-        const grid_width = columns_in_viewport * this.config.step.interval;
+        let grid_width = columns_in_viewport * this.config.step.interval;
         this.grid.end = add(this.grid.start, grid_width, this.config.step.unit);
+
+        // Collect dates that must be included in the grid
+        const must_include = [];
+        if (target_date) {
+            must_include.push(ensureInstant(target_date));
+        }
+        // Ensure today is in the grid if today_button is enabled
+        if (this.options.today_button) {
+            must_include.push(Temporal.Now.instant());
+        }
+
+        // Extend grid to include all required dates with buffer
+        for (const date of must_include) {
+            const buffer_date = add(date, columns_in_viewport * this.config.step.interval, this.config.step.unit);
+            if (Temporal.Instant.compare(buffer_date, this.grid.end) > 0) {
+                this.grid.end = buffer_date;
+            }
+            if (Temporal.Instant.compare(date, this.grid.start) < 0) {
+                this.grid.start = floor(date, this.config.step.unit);
+            }
+        }
     }
 
     setup_grid_date_values() {
@@ -729,19 +783,9 @@ export default class Gantt {
                 }
 
                 if (check_highlight(d) || (extra_func && extra_func(d))) {
-                    // Calculate x position of this day
-                    const x =
-                        (diff(d, this.grid.start, this.config.step.unit) /
-                            this.config.step.interval) *
-                        this.config.step.column_width;
-
-                    // Calculate x position of next day to derive width
-                    // This ensures consistent calendar-aware calculations
+                    const x = this.viewport.dateToX(d);
                     const nextDay = add(d, 1, 'day');
-                    const next_x =
-                        (diff(nextDay, this.grid.start, this.config.step.unit) /
-                            this.config.step.interval) *
-                        this.config.step.column_width;
+                    const next_x = this.viewport.dateToX(nextDay);
                     const width = next_x - x;
 
                     const height = this.grid_height - this.config.header_height;
@@ -784,8 +828,7 @@ export default class Gantt {
         el.classList.add('current-date-highlight');
 
         const now = Temporal.Now.instant();
-        const diff_in_units = diff(now, this.grid.start, this.config.step.unit);
-        const left = (diff_in_units / this.config.step.interval) * this.config.step.column_width;
+        const left = this.viewport.dateToX(now);
 
         this.$current_highlight = this.create_el({
             top: this.config.header_height,
@@ -838,15 +881,11 @@ export default class Gantt {
                 continue;
             }
 
-            let positionOffset =
-                convertToUnit(
-                    diff(d, this.grid.start) + 'd',
-                    this.config.step.unit,
-                ) / this.config.step.interval;
+            const x = this.viewport.dateToX(d);
 
-            this.config.ignored_positions.push(positionOffset * this.config.step.column_width);
+            this.config.ignored_positions.push(x);
             createSVG('rect', {
-                x: positionOffset * this.config.step.column_width,
+                x,
                 y: this.config.header_height,
                 width: this.config.step.column_width,
                 height: height,
@@ -1031,9 +1070,7 @@ export default class Gantt {
             date = parseInstant(date);
         }
 
-        // Calculate scroll position using Duration
-        const diff_in_units = diff(ensureInstant(date), this.grid.start, this.config.step.unit);
-        const scroll_pos = (diff_in_units / this.config.step.interval) * this.config.step.column_width;
+        const scroll_pos = this.viewport.dateToX(ensureInstant(date));
 
         this.$container.scrollTo({
             left: scroll_pos - this.config.step.column_width / 6,
@@ -1045,10 +1082,7 @@ export default class Gantt {
             this.$current.classList.remove('current-upper');
         }
 
-        const scroll_units =
-            (this.$container.scrollLeft / this.config.step.column_width) *
-            this.config.step.interval;
-        this.current_date = add(this.grid.start, scroll_units, this.config.step.unit);
+        this.current_date = this.viewport.xToDate(this.$container.scrollLeft);
 
         let current_upper = this.config.view_mode.upper_text(
             this.current_date,
@@ -1060,12 +1094,7 @@ export default class Gantt {
         );
 
         if ($el) {
-            // Recalculate using Duration
-            const adjusted_scroll_units =
-                ((this.$container.scrollLeft + $el.clientWidth) /
-                    this.config.step.column_width) *
-                this.config.step.interval;
-            this.current_date = add(this.grid.start, adjusted_scroll_units, this.config.step.unit);
+            this.current_date = this.viewport.xToDate(this.$container.scrollLeft + $el.clientWidth);
             current_upper = this.config.view_mode.upper_text(
                 this.current_date,
                 null,
@@ -1250,44 +1279,58 @@ export default class Gantt {
         });
 
         if (this.options.infinite_padding) {
-            let extended = false;
+            let extending = false;
+            // Trigger extension when within 2 viewport widths of the edge
+            const getTriggerDistance = () => this.$container.clientWidth * 2;
+            // Extend by enough units to add 3 viewport widths of content
+            const getExtendUnits = () => Math.ceil((this.$container.clientWidth * 3) / this.config.step.column_width);
+
             $.on(this.$container, 'mousewheel', (e) => {
-                let trigger = this.$container.scrollWidth / 2;
-                if (!extended && e.currentTarget.scrollLeft <= trigger) {
-                    let old_scroll_left = e.currentTarget.scrollLeft;
-                    extended = true;
+                if (extending) return;
+
+                const scrollLeft = e.currentTarget.scrollLeft;
+                const scrollWidth = e.currentTarget.scrollWidth;
+                const clientWidth = e.currentTarget.clientWidth;
+                const triggerDistance = getTriggerDistance();
+
+                // Extend into past when near the left edge
+                if (scrollLeft <= triggerDistance) {
+                    extending = true;
+                    const extendUnits = getExtendUnits();
+                    const old_scroll_left = scrollLeft;
 
                     this.grid.start = add(
                         this.grid.start,
-                        -this.config.extend_by_units,
+                        -extendUnits,
                         this.config.step.unit,
                     );
+                    this.viewport.extendBounds('past', extendUnits);
                     this.setup_grid_date_values();
                     this.render();
                     e.currentTarget.scrollLeft =
                         old_scroll_left +
-                        this.config.step.column_width * this.config.extend_by_units;
-                    setTimeout(() => (extended = false), 300);
+                        this.config.step.column_width * extendUnits;
+                    setTimeout(() => (extending = false), 100);
+                    return;
                 }
 
-                if (
-                    !extended &&
-                    e.currentTarget.scrollWidth -
-                    (e.currentTarget.scrollLeft +
-                        e.currentTarget.clientWidth) <=
-                    trigger
-                ) {
-                    let old_scroll_left = e.currentTarget.scrollLeft;
-                    extended = true;
+                // Extend into future when near the right edge
+                const remainingRight = scrollWidth - (scrollLeft + clientWidth);
+                if (remainingRight <= triggerDistance) {
+                    extending = true;
+                    const extendUnits = getExtendUnits();
+                    const old_scroll_left = scrollLeft;
+
                     this.grid.end = add(
                         this.grid.end,
-                        this.config.extend_by_units,
+                        extendUnits,
                         this.config.step.unit,
                     );
+                    this.viewport.extendBounds('future', extendUnits);
                     this.setup_grid_date_values();
                     this.render();
                     e.currentTarget.scrollLeft = old_scroll_left;
-                    setTimeout(() => (extended = false), 300);
+                    setTimeout(() => (extending = false), 100);
                 }
             });
         }
@@ -1302,11 +1345,7 @@ export default class Gantt {
                 dx = e.currentTarget.scrollLeft - x_on_scroll_start;
             }
 
-            // Calculate current scroll position's upper text using Duration
-            const scroll_units =
-                (e.currentTarget.scrollLeft / this.config.step.column_width) *
-                this.config.step.interval;
-            this.current_date = add(this.grid.start, scroll_units, this.config.step.unit);
+            this.current_date = this.viewport.xToDate(e.currentTarget.scrollLeft);
 
             let current_upper = this.config.view_mode.upper_text(
                 this.current_date,
@@ -1318,12 +1357,7 @@ export default class Gantt {
             );
 
             if ($el) {
-                // Recalculate for smoother experience using Duration
-                const adjusted_scroll_units =
-                    ((e.currentTarget.scrollLeft + $el.clientWidth) /
-                        this.config.step.column_width) *
-                    this.config.step.interval;
-                this.current_date = add(this.grid.start, adjusted_scroll_units, this.config.step.unit);
+                this.current_date = this.viewport.xToDate(e.currentTarget.scrollLeft + $el.clientWidth);
                 current_upper = this.config.view_mode.upper_text(
                     this.current_date,
                     null,
