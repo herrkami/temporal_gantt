@@ -5,18 +5,6 @@ import { Temporal } from 'temporal-polyfill';
 // Default timezone for converting Instant to PlainDateTime
 const DEFAULT_TIMEZONE = 'UTC';
 
-// Millisecond constants for backward compatibility during transition
-export const MS_PER_UNIT = {
-    millisecond: 1,
-    second: 1000,
-    minute: 60 * 1000,
-    hour: 60 * 60 * 1000,
-    day: 24 * 60 * 60 * 1000,
-    week: 7 * 24 * 60 * 60 * 1000,
-    month: 30 * 24 * 60 * 60 * 1000,
-    year: 365 * 24 * 60 * 60 * 1000,
-};
-
 // Unit short forms for duration formatting
 const UNIT_SHORT_FORMS = {
     year: 'y',
@@ -377,23 +365,24 @@ export function getDaysInYear(instant) {
 }
 
 /**
- * Format a duration in milliseconds into a human-readable string
- * @param {number} ms - Duration in milliseconds
+ * Format a Temporal.Duration into a human-readable string
+ * @param {Temporal.Duration} duration - Duration to format
  * @param {object} options - Formatting options
  * @returns {string}
  */
-export function formatDuration(ms, options = {}) {
+export function formatDuration(duration, options = {}) {
     const {
         showMilliseconds = true,
         maxUnits = null,
         shortForm = false,
     } = options;
 
-    if (ms === 0) return shortForm ? '0ms' : '0 milliseconds';
-    if (ms < 0) return '-' + formatDuration(-ms, options);
+    // Handle zero duration
+    const sign = Temporal.Duration.compare(duration, Temporal.Duration.from({ seconds: 0 }));
+    if (sign === 0) return shortForm ? '0ms' : '0 milliseconds';
+    if (sign < 0) return '-' + formatDuration(duration.negated(), options);
 
-    // Create duration and balance it
-    const duration = Temporal.Duration.from({ milliseconds: Math.abs(ms) });
+    // Balance the duration
     const balanced = duration.round({
         largestUnit: 'year',
         smallestUnit: showMilliseconds ? 'millisecond' : 'second',

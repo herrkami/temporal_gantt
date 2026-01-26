@@ -1,4 +1,5 @@
-import { toPlainDateTime, ensureInstant, add, format, formatDatetime, formatDuration, MS_PER_UNIT } from './temporal_utils';
+import { Temporal } from 'temporal-polyfill';
+import { toPlainDateTime, ensureInstant, add, format, formatDatetime, formatDuration } from './temporal_utils';
 
 function getDecade(instant) {
     const pdt = toPlainDateTime(ensureInstant(instant));
@@ -20,7 +21,6 @@ const DEFAULT_VIEW_MODES = [
         name: 'Hour',
         padding: '7d',
         step: '1h',
-        step_ms: MS_PER_UNIT.hour,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (instant, lastInstant, lang) => {
@@ -36,7 +36,6 @@ const DEFAULT_VIEW_MODES = [
         name: 'Quarter Day',
         padding: '7d',
         step: '6h',
-        step_ms: 6 * MS_PER_UNIT.hour,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (instant, lastInstant, lang) => {
@@ -52,7 +51,6 @@ const DEFAULT_VIEW_MODES = [
         name: 'Half Day',
         padding: '14d',
         step: '12h',
-        step_ms: 12 * MS_PER_UNIT.hour,
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
         upper_text: (instant, lastInstant, lang) => {
@@ -71,7 +69,6 @@ const DEFAULT_VIEW_MODES = [
         padding: '7d',
         date_format: 'YYYY-MM-DD',
         step: '1d',
-        step_ms: MS_PER_UNIT.day,
         lower_text: (instant, lastInstant, lang) => {
             const pdt = toPlainDateTime(ensureInstant(instant));
             const lastPdt = lastInstant ? toPlainDateTime(ensureInstant(lastInstant)) : null;
@@ -95,7 +92,6 @@ const DEFAULT_VIEW_MODES = [
         name: 'Week',
         padding: '1m',
         step: '7d',
-        step_ms: MS_PER_UNIT.week,
         date_format: 'YYYY-MM-DD',
         column_width: 140,
         lower_text: formatWeek,
@@ -116,7 +112,6 @@ const DEFAULT_VIEW_MODES = [
         name: 'Month',
         padding: '2m',
         step: '1m',
-        step_ms: MS_PER_UNIT.month,
         column_width: 120,
         date_format: 'YYYY-MM',
         lower_text: 'MMMM',
@@ -137,7 +132,6 @@ const DEFAULT_VIEW_MODES = [
         name: 'Year',
         padding: '2y',
         step: '1y',
-        step_ms: MS_PER_UNIT.year,
         column_width: 120,
         date_format: 'YYYY',
         upper_text: (instant, lastInstant, lang) =>
@@ -181,23 +175,23 @@ const DEFAULT_OPTIONS = {
             maxTimeUnits: 3,
         });
 
-        // Calculate precise duration using epochMilliseconds
-        const startMs = ctx.task.start.epochMilliseconds;
-        const endMs = ctx.task.end.epochMilliseconds;
+        // Calculate precise duration using Temporal Duration
+        const taskEnd = toPlainDateTime(ctx.task.end);
+        const taskStart = toPlainDateTime(ctx.task.start);
         const precise_duration = formatDuration(
-            endMs - startMs,
+            taskEnd.since(taskStart),
             { showMilliseconds: false, maxUnits: 4 },
         );
 
         // Calculate working duration (excluding ignored periods)
         const working_duration = formatDuration(
-            ctx.task.actual_duration * MS_PER_UNIT.day,
+            Temporal.Duration.from({ days: ctx.task.actual_duration }),
             { showMilliseconds: false, maxUnits: 4 },
         );
 
         const ignored_duration = ctx.task.ignored_duration
             ? formatDuration(
-                  ctx.task.ignored_duration * MS_PER_UNIT.day,
+                  Temporal.Duration.from({ days: ctx.task.ignored_duration }),
                   { showMilliseconds: false, maxUnits: 3 },
               )
             : null;

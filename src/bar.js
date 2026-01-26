@@ -1,4 +1,4 @@
-import { ensureInstant, add, Temporal, diff, today, MS_PER_UNIT } from './temporal_utils';
+import { ensureInstant, add, Temporal, diff, today, toPlainDateTime, toInstant, parseDuration } from './temporal_utils';
 import { $, createSVG, animateSVG } from './svg_utils';
 
 export default class Bar {
@@ -161,12 +161,9 @@ export default class Bar {
         });
         if (this.task.color_progress)
             this.$bar_progress.style.fill = this.task.color_progress;
-        // Use millisecond precision for progress bar position
-        const diff_ms =
-            this.task.start.epochMilliseconds -
-            this.gantt.gantt_start.epochMilliseconds;
-        const step_ms = this.gantt.config.view_mode.step_ms;
-        const x = (diff_ms / step_ms) * this.gantt.config.column_width;
+        // Calculate position using Duration
+        const diff_in_units = diff(this.task.start, this.gantt.gantt_start, this.gantt.config.unit);
+        const x = (diff_in_units / this.gantt.config.step) * this.gantt.config.column_width;
 
         let $date_highlight = this.gantt.create_el({
             classes: `date-range-highlight hide highlight-${this.task.uid}`,
@@ -493,16 +490,12 @@ export default class Bar {
         let changed = false;
         const { new_start_instant, new_end_instant } = this.compute_start_end_instant();
 
-        const startMs = this.task.start.epochMilliseconds;
-        const newStartMs = new_start_instant.epochMilliseconds;
-        if (startMs !== newStartMs) {
+        if (Temporal.Instant.compare(this.task.start, new_start_instant) !== 0) {
             changed = true;
             this.task.start = new_start_instant;
         }
 
-        const endMs = this.task.end.epochMilliseconds;
-        const newEndMs = new_end_instant.epochMilliseconds;
-        if (endMs !== newEndMs) {
+        if (Temporal.Instant.compare(this.task.end, new_end_instant) !== 0) {
             changed = true;
             this.task.end = new_end_instant;
         }
@@ -532,20 +525,15 @@ export default class Bar {
     compute_start_end_instant() {
         const bar = this.$bar;
         const x_in_units = bar.getX() / this.gantt.config.column_width;
-        const step_ms = this.gantt.config.view_mode.step_ms;
-
-        // Use millisecond precision for instant calculations
-        const start_offset_ms = x_in_units * step_ms;
-        const gantt_start_ms = this.gantt.gantt_start.epochMilliseconds;
-        const new_start_instant = Temporal.Instant.fromEpochMilliseconds(
-            gantt_start_ms + start_offset_ms,
-        );
-
         const width_in_units = bar.getWidth() / this.gantt.config.column_width;
-        const duration_ms = width_in_units * step_ms;
-        const new_end_instant = Temporal.Instant.fromEpochMilliseconds(
-            new_start_instant.epochMilliseconds + duration_ms,
-        );
+
+        // Calculate start by adding the offset units to gantt_start
+        const start_offset = x_in_units * this.gantt.config.step;
+        const new_start_instant = add(this.gantt.gantt_start, start_offset, this.gantt.config.unit);
+
+        // Calculate end by adding the duration units to start
+        const duration_in_units = width_in_units * this.gantt.config.step;
+        const new_end_instant = add(new_start_instant, duration_in_units, this.gantt.config.unit);
 
         return { new_start_instant, new_end_instant };
     }
@@ -591,10 +579,9 @@ export default class Bar {
         const task_start = this.task.start;
         const gantt_start = this.gantt.gantt_start;
 
-        // Use millisecond precision for position calculation
-        const diff_ms = task_start.epochMilliseconds - gantt_start.epochMilliseconds;
-        const step_ms = this.gantt.config.view_mode.step_ms;
-        const x = (diff_ms / step_ms) * column_width;
+        // Calculate position using Duration
+        const diff_in_units = diff(task_start, gantt_start, this.gantt.config.unit);
+        const x = (diff_in_units / this.gantt.config.step) * column_width;
 
         this.x = x;
     }
@@ -607,43 +594,43 @@ export default class Bar {
     }
 
     compute_duration() {
-        // Calculate duration in milliseconds for precision
-        const start_ms = this.task.start.epochMilliseconds;
-        const end_ms = this.task.end.epochMilliseconds;
-        const total_ms = end_ms - start_ms;
-        const step_ms = this.gantt.config.view_mode.step_ms;
+        // Calculate duration in view units
+        const total_in_units = diff(this.task.end, this.task.start, this.gantt.config.unit);
+        this.duration = total_in_units / this.gantt.config.step;
 
         // Calculate actual duration excluding ignored periods
         let actual_duration_in_days = 0,
             duration_in_days = 0;
 
-        // Iterate through days using Temporal
-        let current = this.task.start;
-        const end = this.task.end;
-        const dayMs = MS_PER_UNIT.day;
+        // Iterate through days using Duration
+        const oneDay = Temporal.Duration.from({ days: 1 });
+        let currentPdt = toPlainDateTime(this.task.start);
+        const endPdt = toPlainDateTime(this.task.end);
 
-        while (current.epochMilliseconds < end.epochMilliseconds) {
+        while (Temporal.PlainDateTime.compare(currentPdt, endPdt) < 0) {
             duration_in_days++;
-            const currentMs = current.epochMilliseconds;
+            const currentInstant = toInstant(currentPdt);
             if (
-                !this.gantt.config.ignored_dates.find(
-                    (k) => k.epochMilliseconds === currentMs,
+                !this.gantt.config.ignored_dates.some(
+                    (k) => Temporal.Instant.compare(k, currentInstant) === 0,
                 ) &&
                 (!this.gantt.config.ignored_function ||
-                    !this.gantt.config.ignored_function(current))
+                    !this.gantt.config.ignored_function(currentInstant))
             ) {
                 actual_duration_in_days++;
             }
-            current = Temporal.Instant.fromEpochMilliseconds(currentMs + dayMs);
+            currentPdt = currentPdt.add(oneDay);
         }
         this.task.actual_duration = actual_duration_in_days;
         this.task.ignored_duration = duration_in_days - actual_duration_in_days;
 
-        this.duration = total_ms / step_ms;
-
-        const actual_duration_ms =
-            actual_duration_in_days * MS_PER_UNIT.day;
-        this.actual_duration_raw = actual_duration_ms / step_ms;
+        // Calculate actual duration in view units
+        const step_duration = parseDuration(this.gantt.config.view_mode.step);
+        const day_duration = Temporal.Duration.from({ days: 1 });
+        const relativeTo = Temporal.Now.plainDateISO();
+        const step_ms = step_duration.total({ unit: 'millisecond', relativeTo });
+        const day_ms = day_duration.total({ unit: 'millisecond', relativeTo });
+        this.actual_duration_raw = (actual_duration_in_days * day_ms) / step_ms;
 
         this.ignored_duration_raw = this.duration - this.actual_duration_raw;
     }
