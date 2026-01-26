@@ -244,7 +244,7 @@ export function add(instant, qty, scale) {
  * @param {string} scale
  * @returns {Temporal.Instant}
  */
-export function startOf(instant, scale) {
+export function floor(instant, scale) {
     const pdt = toPlainDateTime(ensureInstant(instant));
 
     let truncated;
@@ -285,7 +285,7 @@ export function startOf(instant, scale) {
  * @returns {Temporal.Instant}
  */
 export function today() {
-    return startOf(Temporal.Now.instant(), 'day');
+    return floor(Temporal.Now.instant(), 'day');
 }
 
 /**

@@ -56,7 +56,7 @@ export default class Bar {
         this.compute_duration();
         this.corner_radius = this.gantt.options.bar_corner_radius;
         // Use millisecond precision for width calculation
-        this.width = this.gantt.config.column_width * this.duration;
+        this.width = this.gantt.config.step.column_width * this.duration;
         if (!this.task.progress || this.task.progress < 0)
             this.task.progress = 0;
         if (this.task.progress > 100) this.task.progress = 100;
@@ -162,8 +162,8 @@ export default class Bar {
         if (this.task.color_progress)
             this.$bar_progress.style.fill = this.task.color_progress;
         // Calculate position using Duration
-        const diff_in_units = diff(this.task.start, this.gantt.gantt_start, this.gantt.config.unit);
-        const x = (diff_in_units / this.gantt.config.step) * this.gantt.config.column_width;
+        const diff_in_units = diff(this.task.start, this.gantt.grid.start, this.gantt.config.step.unit);
+        const x = (diff_in_units / this.gantt.config.step.interval) * this.gantt.config.step.column_width;
 
         let $date_highlight = this.gantt.create_el({
             classes: `date-range-highlight hide highlight-${this.task.uid}`,
@@ -182,7 +182,7 @@ export default class Bar {
         const total_ignored_width =
             this.gantt.config.ignored_positions.reduce((acc, val) => {
                 return acc + (val >= this.x && val < ignored_end);
-            }, 0) * this.gantt.config.column_width;
+            }, 0) * this.gantt.config.step.column_width;
 
         // Calculate progress based on working area (non-ignored portions)
         const working_width = Math.max(0, width - total_ignored_width);
@@ -192,7 +192,7 @@ export default class Bar {
         const total_ignored_progress =
             this.gantt.config.ignored_positions.reduce((acc, val) => {
                 return acc + (val >= this.x && val < progress_end);
-            }, 0) * this.gantt.config.column_width;
+            }, 0) * this.gantt.config.step.column_width;
 
         progress_width += total_ignored_progress;
 
@@ -201,7 +201,7 @@ export default class Bar {
         );
 
         while (ignored_regions.length) {
-            progress_width += this.gantt.config.column_width;
+            progress_width += this.gantt.config.step.column_width;
             ignored_regions = this.gantt.get_ignored_region(
                 this.x + progress_width,
             );
@@ -524,16 +524,16 @@ export default class Bar {
 
     compute_start_end_instant() {
         const bar = this.$bar;
-        const x_in_units = bar.getX() / this.gantt.config.column_width;
-        const width_in_units = bar.getWidth() / this.gantt.config.column_width;
+        const x_in_units = bar.getX() / this.gantt.config.step.column_width;
+        const width_in_units = bar.getWidth() / this.gantt.config.step.column_width;
 
         // Calculate start by adding the offset units to gantt_start
-        const start_offset = x_in_units * this.gantt.config.step;
-        const new_start_instant = add(this.gantt.gantt_start, start_offset, this.gantt.config.unit);
+        const start_offset = x_in_units * this.gantt.config.step.interval;
+        const new_start_instant = add(this.gantt.grid.start, start_offset, this.gantt.config.step.unit);
 
         // Calculate end by adding the duration units to start
-        const duration_in_units = width_in_units * this.gantt.config.step;
-        const new_end_instant = add(new_start_instant, duration_in_units, this.gantt.config.unit);
+        const duration_in_units = width_in_units * this.gantt.config.step.interval;
+        const new_end_instant = add(new_start_instant, duration_in_units, this.gantt.config.step.unit);
 
         return { new_start_instant, new_end_instant };
     }
@@ -547,12 +547,12 @@ export default class Bar {
             this.gantt.config.ignored_positions.reduce((acc, val) => {
                 return acc + (val >= this.x && val <= progress_total_width);
             }, 0) *
-                this.gantt.config.column_width;
+                this.gantt.config.step.column_width;
         if (progress < 0) return 0;
 
         const total =
             this.$bar.getWidth() -
-            this.ignored_duration_raw * this.gantt.config.column_width;
+            this.ignored_duration_raw * this.gantt.config.step.column_width;
 
         // Prevent division by zero - if total is zero or negative, return 0%
         if (total <= 0) return 0;
@@ -565,7 +565,7 @@ export default class Bar {
     compute_expected_progress() {
         this.expected_progress =
             diff(today(), this.task.start, 'hour') /
-            this.gantt.config.step;
+            this.gantt.config.step.interval;
         this.expected_progress =
             ((this.expected_progress < this.duration
                 ? this.expected_progress
@@ -575,13 +575,13 @@ export default class Bar {
     }
 
     compute_x() {
-        const { column_width } = this.gantt.config;
+        const { column_width } = this.gantt.config.step;
         const task_start = this.task.start;
-        const gantt_start = this.gantt.gantt_start;
+        const gantt_start = this.gantt.grid.start;
 
         // Calculate position using Duration
-        const diff_in_units = diff(task_start, gantt_start, this.gantt.config.unit);
-        const x = (diff_in_units / this.gantt.config.step) * column_width;
+        const diff_in_units = diff(task_start, gantt_start, this.gantt.config.step.unit);
+        const x = (diff_in_units / this.gantt.config.step.interval) * column_width;
 
         this.x = x;
     }
@@ -595,8 +595,8 @@ export default class Bar {
 
     compute_duration() {
         // Calculate duration in view units
-        const total_in_units = diff(this.task.end, this.task.start, this.gantt.config.unit);
-        this.duration = total_in_units / this.gantt.config.step;
+        const total_in_units = diff(this.task.end, this.task.start, this.gantt.config.step.unit);
+        this.duration = total_in_units / this.gantt.config.step.interval;
 
         // Calculate actual duration excluding ignored periods
         let actual_duration_in_days = 0,
@@ -649,7 +649,7 @@ export default class Bar {
         this.compute_expected_progress();
         this.$expected_bar_progress.setAttribute(
             'width',
-            this.gantt.config.column_width *
+            this.gantt.config.step.column_width *
                 this.actual_duration_raw *
                 (this.expected_progress / 100) || 0,
         );

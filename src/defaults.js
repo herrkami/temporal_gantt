@@ -19,7 +19,7 @@ function formatWeek(instant, lastInstant, lang) {
 const DEFAULT_VIEW_MODES = [
     {
         name: 'Hour',
-        padding: '7d',
+        padding: '1h',
         step: '1h',
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
@@ -34,7 +34,7 @@ const DEFAULT_VIEW_MODES = [
     },
     {
         name: 'Quarter Day',
-        padding: '7d',
+        padding: '6h',
         step: '6h',
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
@@ -49,7 +49,7 @@ const DEFAULT_VIEW_MODES = [
     },
     {
         name: 'Half Day',
-        padding: '14d',
+        padding: '12h',
         step: '12h',
         date_format: 'YYYY-MM-DD HH:',
         lower_text: 'HH',
@@ -66,7 +66,7 @@ const DEFAULT_VIEW_MODES = [
     },
     {
         name: 'Day',
-        padding: '7d',
+        padding: '1d',
         date_format: 'YYYY-MM-DD',
         step: '1d',
         lower_text: (instant, lastInstant, lang) => {
@@ -90,7 +90,7 @@ const DEFAULT_VIEW_MODES = [
     },
     {
         name: 'Week',
-        padding: '1m',
+        padding: '1w',
         step: '7d',
         date_format: 'YYYY-MM-DD',
         column_width: 140,
@@ -110,7 +110,7 @@ const DEFAULT_VIEW_MODES = [
     },
     {
         name: 'Month',
-        padding: '2m',
+        padding: '1m',
         step: '1m',
         column_width: 120,
         date_format: 'YYYY-MM',
@@ -130,7 +130,7 @@ const DEFAULT_VIEW_MODES = [
     },
     {
         name: 'Year',
-        padding: '2y',
+        padding: '1y',
         step: '1y',
         column_width: 120,
         date_format: 'YYYY',

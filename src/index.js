@@ -3,7 +3,7 @@ import {
     toPlainDateTime,
     toInstant,
     Temporal,
-    startOf,
+    floor,
     parseInstant,
     parseDuration,
     parseDurationString,
@@ -26,11 +26,15 @@ import './styles/gantt.css';
 
 export default class Gantt {
     constructor(wrapper, tasks, options) {
+        this.config = {};
+        this.grid = {};
+
         this.setup_wrapper(wrapper);
         this.setup_options(options);
         this.load_task_list(tasks);
         this.change_view_mode();
         this.bind_events();
+
     }
 
     setup_wrapper(element) {
@@ -124,7 +128,8 @@ export default class Gantt {
         this.config = {
             ignored_dates: [],
             ignored_positions: [],
-            extend_by_units: 10,
+            extend_by_units: 2,
+            step: {},
         };
 
         if (typeof this.options.ignore !== 'function') {
@@ -304,8 +309,8 @@ export default class Gantt {
         }
         this.options.view_mode = mode.name;
         this.config.view_mode = mode;
-        this.update_view_scale(mode);
-        this.setup_dates(maintain_pos);
+        this.update_view_mode(mode);
+        this.setup_grid_dates(maintain_pos);
         this.render();
         if (maintain_pos) {
             this.$container.scrollLeft = old_pos;
@@ -314,30 +319,30 @@ export default class Gantt {
         this.trigger_event('view_change', [mode]);
     }
 
-    update_view_scale(mode) {
+    update_view_mode(mode) {
         let { value, unit } = parseDurationString(mode.step);
-        this.config.step = value;
-        this.config.unit = unit;
+        this.config.step.interval = value;
+        this.config.step.unit = unit;
 
         // Validate step duration
         if (value <= 0) {
             console.warn(`Invalid step duration: ${value} ${unit}. Using default step of 1 day.`);
-            this.config.step = 1;
-            this.config.unit = 'day';
+            this.config.step.interval = 1;
+            this.config.step.unit = 'day';
         }
 
-        this.config.column_width =
+        this.config.step.column_width =
             this.options.column_width || mode.column_width || 45;
 
         // Validate column width
-        if (this.config.column_width <= 0) {
-            console.warn(`Invalid column width: ${this.config.column_width}. Using default value of 45.`);
-            this.config.column_width = 45;
+        if (this.config.step.column_width <= 0) {
+            console.warn(`Invalid column width: ${this.config.step.column_width}. Using default value of 45.`);
+            this.config.step.column_width = 45;
         }
 
         this.$container.style.setProperty(
             '--gv-column-width',
-            this.config.column_width + 'px',
+            this.config.step.column_width + 'px',
         );
         this.config.header_height =
             this.options.lower_header_height +
@@ -345,29 +350,24 @@ export default class Gantt {
             10;
     }
 
-    setup_dates(refresh = false) {
-        this.setup_gantt_dates(refresh);
-        this.setup_date_values();
+    setup_grid_dates(refresh = false) {
+        this.setup_grid_range(refresh);
+        this.setup_grid_date_values();
     }
 
-    setup_gantt_dates(refresh) {
-        let gantt_start, gantt_end;
+    setup_grid_range(refresh) {
+        let gantt_start;
         if (!this.tasks.length) {
             gantt_start = Temporal.Now.instant();
-            gantt_end = Temporal.Now.instant();
         }
 
         for (let task of this.tasks) {
             if (!gantt_start || Temporal.Instant.compare(task.start, gantt_start) < 0) {
                 gantt_start = task.start;
             }
-            if (!gantt_end || Temporal.Instant.compare(task.end, gantt_end) > 0) {
-                gantt_end = task.end;
-            }
         }
 
-        gantt_start = startOf(gantt_start, this.config.unit);
-        gantt_end = startOf(gantt_end, this.config.unit);
+        gantt_start = floor(gantt_start, this.config.step.unit);
 
         if (!refresh) {
             if (!this.options.infinite_padding) {
@@ -381,46 +381,54 @@ export default class Gantt {
                     this.config.view_mode.padding.map(
                         parseDurationString,
                     );
-                this.gantt_start = add(
+                this.grid.start = add(
                     gantt_start,
                     -padding_start.value,
                     padding_start.unit,
                 );
-                this.gantt_end = add(
-                    gantt_end,
-                    padding_end.value,
-                    padding_end.unit,
-                );
             } else {
-                this.gantt_start = add(
+                this.grid.start = add(
                     gantt_start,
-                    -this.config.extend_by_units * 3,
-                    this.config.unit,
-                );
-                this.gantt_end = add(
-                    gantt_end,
-                    this.config.extend_by_units * 3,
-                    this.config.unit,
+                    -this.config.extend_by_units,
+                    this.config.step.unit,
                 );
             }
         }
+
+        // Sets gantt_end
+        this.extend_grid_to_fill_viewport();
+
         this.config.date_format =
             this.config.view_mode.date_format || this.options.date_format;
-        // Normalize gantt_start to midnight
-        this.gantt_start = startOf(this.gantt_start, 'day');
     }
 
-    setup_date_values() {
-        let cur_pdt = toPlainDateTime(this.gantt_start);
-        this.dates = [this.gantt_start];
+    extend_grid_to_fill_viewport() {
+        const container_width = this.$container?.clientWidth || 0;
+        if (!container_width) return;
+
+        // Calculate minimum columns needed to fill the viewport (plus a small buffer)
+        const columns_in_viewport = Math.ceil(container_width / this.config.step.column_width) + 1;
+
+        // Calculate current number of columns based on the time span
+        // const span_in_units = diff(this.grid.end, this.grid.start, this.config.step.unit);
+        // const current_columns = Math.ceil(span_in_units / this.config.step.interval);
+
+        // Extend gantt_end if we don't have enough columns
+        const grid_width = columns_in_viewport * this.config.step.interval;
+        this.grid.end = add(this.grid.start, grid_width, this.config.step.unit);
+    }
+
+    setup_grid_date_values() {
+        let cur_pdt = toPlainDateTime(this.grid.start);
+        this.grid.dates = [this.grid.start];
 
         // Use Duration for date iteration
         const step_duration = parseDuration(this.config.view_mode.step);
-        const gantt_end_pdt = toPlainDateTime(this.gantt_end);
+        const gantt_end_pdt = toPlainDateTime(this.grid.end);
 
         while (Temporal.PlainDateTime.compare(cur_pdt, gantt_end_pdt) < 0) {
             cur_pdt = cur_pdt.add(step_duration);
-            this.dates.push(toInstant(cur_pdt));
+            this.grid.dates.push(toInstant(cur_pdt));
         }
     }
 
@@ -478,7 +486,7 @@ export default class Gantt {
     }
 
     make_grid_background() {
-        const grid_width = this.dates.length * this.config.column_width;
+        const grid_width = this.grid.dates.length * this.config.step.column_width;
         const grid_height = Math.max(
             this.config.header_height +
             this.options.padding +
@@ -511,7 +519,7 @@ export default class Gantt {
     make_grid_rows() {
         const rows_layer = createSVG('g', { append_to: this.layers.grid });
 
-        const row_width = this.dates.length * this.config.column_width;
+        const row_width = this.grid.dates.length * this.config.step.column_width;
         const row_height = this.options.bar_height + this.options.padding;
 
         let y = this.config.header_height;
@@ -533,7 +541,7 @@ export default class Gantt {
 
     make_grid_header() {
         this.$header = this.create_el({
-            width: this.dates.length * this.config.column_width,
+            width: this.grid.dates.length * this.config.step.column_width,
             classes: 'grid-header',
             append_to: this.$container,
         });
@@ -605,7 +613,7 @@ export default class Gantt {
 
         let row_y = this.config.header_height;
 
-        const row_width = this.dates.length * this.config.column_width;
+        const row_width = this.grid.dates.length * this.config.step.column_width;
         const row_height = this.options.bar_height + this.options.padding;
         if (this.options.lines !== 'vertical') {
             for (
@@ -626,7 +634,7 @@ export default class Gantt {
         }
         if (this.options.lines === 'horizontal') return;
 
-        for (let instant of this.dates) {
+        for (let instant of this.grid.dates) {
             let tick_class = 'tick';
             if (
                 this.config.view_mode.thick_line &&
@@ -644,15 +652,15 @@ export default class Gantt {
             if (this.view_is('month')) {
                 tick_x +=
                     (getDaysInMonth(instant) *
-                        this.config.column_width) /
+                        this.config.step.column_width) /
                     30;
             } else if (this.view_is('year')) {
                 tick_x +=
                     (getDaysInYear(instant) *
-                        this.config.column_width) /
+                        this.config.step.column_width) /
                     365;
             } else {
-                tick_x += this.config.column_width;
+                tick_x += this.config.step.column_width;
             }
         }
     }
@@ -703,8 +711,8 @@ export default class Gantt {
             }
 
             // Iterate through days using Duration
-            let currentPdt = toPlainDateTime(this.gantt_start);
-            const endPdt = toPlainDateTime(this.gantt_end);
+            let currentPdt = toPlainDateTime(this.grid.start);
+            const endPdt = toPlainDateTime(this.grid.end);
 
             while (Temporal.PlainDateTime.compare(currentPdt, endPdt) <= 0) {
                 const d = toInstant(currentPdt);
@@ -721,14 +729,21 @@ export default class Gantt {
                 }
 
                 if (check_highlight(d) || (extra_func && extra_func(d))) {
+                    // Calculate x position of this day
                     const x =
-                        (diff(
-                            d,
-                            this.gantt_start,
-                            this.config.unit,
-                        ) /
-                            this.config.step) *
-                        this.config.column_width;
+                        (diff(d, this.grid.start, this.config.step.unit) /
+                            this.config.step.interval) *
+                        this.config.step.column_width;
+
+                    // Calculate x position of next day to derive width
+                    // This ensures consistent calendar-aware calculations
+                    const nextDay = add(d, 1, 'day');
+                    const next_x =
+                        (diff(nextDay, this.grid.start, this.config.step.unit) /
+                            this.config.step.interval) *
+                        this.config.step.column_width;
+                    const width = next_x - x;
+
                     const height = this.grid_height - this.config.header_height;
                     const d_formatted = format(d, 'YYYY-MM-DD', this.options.language)
                         .replace(' ', '_');
@@ -744,12 +759,7 @@ export default class Gantt {
                     createSVG('rect', {
                         x: Math.round(x),
                         y: this.config.header_height,
-                        width:
-                            this.config.column_width /
-                            convertToUnit(
-                                this.config.view_mode.step,
-                                'day',
-                            ),
+                        width,
                         height,
                         class: 'holiday-highlight ' + d_formatted,
                         style: `fill: ${color};`,
@@ -774,8 +784,8 @@ export default class Gantt {
         el.classList.add('current-date-highlight');
 
         const now = Temporal.Now.instant();
-        const diff_in_units = diff(now, this.gantt_start, this.config.unit);
-        const left = (diff_in_units / this.config.step) * this.config.column_width;
+        const diff_in_units = diff(now, this.grid.start, this.config.step.unit);
+        const left = (diff_in_units / this.config.step.interval) * this.config.step.column_width;
 
         this.$current_highlight = this.create_el({
             top: this.config.header_height,
@@ -809,8 +819,8 @@ export default class Gantt {
         </pattern>`;
 
         const oneDay = Temporal.Duration.from({ days: 1 });
-        let currentPdt = toPlainDateTime(this.gantt_start);
-        const endPdt = toPlainDateTime(this.gantt_end);
+        let currentPdt = toPlainDateTime(this.grid.start);
+        const endPdt = toPlainDateTime(this.grid.end);
 
         while (Temporal.PlainDateTime.compare(currentPdt, endPdt) <= 0) {
             const d = toInstant(currentPdt);
@@ -830,15 +840,15 @@ export default class Gantt {
 
             let positionOffset =
                 convertToUnit(
-                    diff(d, this.gantt_start) + 'd',
-                    this.config.unit,
-                ) / this.config.step;
+                    diff(d, this.grid.start) + 'd',
+                    this.config.step.unit,
+                ) / this.config.step.interval;
 
-            this.config.ignored_positions.push(positionOffset * this.config.column_width);
+            this.config.ignored_positions.push(positionOffset * this.config.step.column_width);
             createSVG('rect', {
-                x: positionOffset * this.config.column_width,
+                x: positionOffset * this.config.step.column_width,
                 y: this.config.header_height,
-                width: this.config.column_width,
+                width: this.config.step.column_width,
                 height: height,
                 class: 'ignored-bar',
                 style: 'fill: url(#diagonalHatch);',
@@ -896,7 +906,7 @@ export default class Gantt {
 
     get_dates_to_draw() {
         let last_date_info = null;
-        const dates = this.dates.map((instant, i) => {
+        const dates = this.grid.dates.map((instant, i) => {
             const d = this.get_date_info(instant, last_date_info, i);
             last_date_info = d;
             return d;
@@ -906,8 +916,6 @@ export default class Gantt {
 
     get_date_info(instant, last_date_info) {
         let last_instant = last_date_info ? last_date_info.instant : null;
-
-        let column_width = this.config.column_width;
 
         const x = last_date_info
             ? last_date_info.x + last_date_info.column_width
@@ -940,7 +948,7 @@ export default class Gantt {
                     this.options.language,
                 ),
             ),
-            column_width: this.config.column_width,
+            column_width: this.config.step.column_width,
             x,
             upper_text: this.config.view_mode.upper_text(
                 instant,
@@ -1014,9 +1022,9 @@ export default class Gantt {
             return;
         }
         if (!date || date === 'start') {
-            date = this.gantt_start;
+            date = this.grid.start;
         } else if (date === 'end') {
-            date = this.gantt_end;
+            date = this.grid.end;
         } else if (date === 'today') {
             return this.scroll_current();
         } else if (typeof date === 'string') {
@@ -1024,11 +1032,11 @@ export default class Gantt {
         }
 
         // Calculate scroll position using Duration
-        const diff_in_units = diff(ensureInstant(date), this.gantt_start, this.config.unit);
-        const scroll_pos = (diff_in_units / this.config.step) * this.config.column_width;
+        const diff_in_units = diff(ensureInstant(date), this.grid.start, this.config.step.unit);
+        const scroll_pos = (diff_in_units / this.config.step.interval) * this.config.step.column_width;
 
         this.$container.scrollTo({
-            left: scroll_pos - this.config.column_width / 6,
+            left: scroll_pos - this.config.step.column_width / 6,
             behavior: 'smooth',
         });
 
@@ -1038,9 +1046,9 @@ export default class Gantt {
         }
 
         const scroll_units =
-            (this.$container.scrollLeft / this.config.column_width) *
-            this.config.step;
-        this.current_date = add(this.gantt_start, scroll_units, this.config.unit);
+            (this.$container.scrollLeft / this.config.step.column_width) *
+            this.config.step.interval;
+        this.current_date = add(this.grid.start, scroll_units, this.config.step.unit);
 
         let current_upper = this.config.view_mode.upper_text(
             this.current_date,
@@ -1055,9 +1063,9 @@ export default class Gantt {
             // Recalculate using Duration
             const adjusted_scroll_units =
                 ((this.$container.scrollLeft + $el.clientWidth) /
-                    this.config.column_width) *
-                this.config.step;
-            this.current_date = add(this.gantt_start, adjusted_scroll_units, this.config.unit);
+                    this.config.step.column_width) *
+                this.config.step.interval;
+            this.current_date = add(this.grid.start, adjusted_scroll_units, this.config.step.unit);
             current_upper = this.config.view_mode.upper_text(
                 this.current_date,
                 null,
@@ -1080,8 +1088,8 @@ export default class Gantt {
     get_closest_date() {
         const now = Temporal.Now.instant();
 
-        if (Temporal.Instant.compare(now, this.gantt_start) < 0 ||
-            Temporal.Instant.compare(now, this.gantt_end) > 0) return null;
+        if (Temporal.Instant.compare(now, this.grid.start) < 0 ||
+            Temporal.Instant.compare(now, this.grid.end) > 0) return null;
 
         let current = Temporal.Now.instant();
         let el = this.$container.querySelector(
@@ -1097,8 +1105,8 @@ export default class Gantt {
 
         // safety check to prevent infinite loop
         let c = 0;
-        while (!el && c < this.config.step) {
-            current = add(current, -1, this.config.unit);
+        while (!el && c < this.config.step.interval) {
+            current = add(current, -1, this.config.step.unit);
             el = this.$container.querySelector(
                 '.date_' +
                 sanitize(
@@ -1249,16 +1257,16 @@ export default class Gantt {
                     let old_scroll_left = e.currentTarget.scrollLeft;
                     extended = true;
 
-                    this.gantt_start = add(
-                        this.gantt_start,
+                    this.grid.start = add(
+                        this.grid.start,
                         -this.config.extend_by_units,
-                        this.config.unit,
+                        this.config.step.unit,
                     );
-                    this.setup_date_values();
+                    this.setup_grid_date_values();
                     this.render();
                     e.currentTarget.scrollLeft =
                         old_scroll_left +
-                        this.config.column_width * this.config.extend_by_units;
+                        this.config.step.column_width * this.config.extend_by_units;
                     setTimeout(() => (extended = false), 300);
                 }
 
@@ -1271,12 +1279,12 @@ export default class Gantt {
                 ) {
                     let old_scroll_left = e.currentTarget.scrollLeft;
                     extended = true;
-                    this.gantt_end = add(
-                        this.gantt_end,
+                    this.grid.end = add(
+                        this.grid.end,
                         this.config.extend_by_units,
-                        this.config.unit,
+                        this.config.step.unit,
                     );
-                    this.setup_date_values();
+                    this.setup_grid_date_values();
                     this.render();
                     e.currentTarget.scrollLeft = old_scroll_left;
                     setTimeout(() => (extended = false), 300);
@@ -1296,9 +1304,9 @@ export default class Gantt {
 
             // Calculate current scroll position's upper text using Duration
             const scroll_units =
-                (e.currentTarget.scrollLeft / this.config.column_width) *
-                this.config.step;
-            this.current_date = add(this.gantt_start, scroll_units, this.config.unit);
+                (e.currentTarget.scrollLeft / this.config.step.column_width) *
+                this.config.step.interval;
+            this.current_date = add(this.grid.start, scroll_units, this.config.step.unit);
 
             let current_upper = this.config.view_mode.upper_text(
                 this.current_date,
@@ -1313,9 +1321,9 @@ export default class Gantt {
                 // Recalculate for smoother experience using Duration
                 const adjusted_scroll_units =
                     ((e.currentTarget.scrollLeft + $el.clientWidth) /
-                        this.config.column_width) *
-                    this.config.step;
-                this.current_date = add(this.gantt_start, adjusted_scroll_units, this.config.unit);
+                        this.config.step.column_width) *
+                    this.config.step.interval;
+                this.current_date = add(this.grid.start, adjusted_scroll_units, this.config.step.unit);
                 current_upper = this.config.view_mode.upper_text(
                     this.current_date,
                     null,
@@ -1461,7 +1469,7 @@ export default class Gantt {
 
         const range_positions = this.config.ignored_positions.map((d) => [
             d,
-            d + this.config.column_width,
+            d + this.config.step.column_width,
         ]);
 
         $.on(this.$svg, 'mousemove', (e) => {
@@ -1552,7 +1560,7 @@ export default class Gantt {
         const snap_ms = snap_duration.total({ unit: 'millisecond', relativeTo });
 
         // Snap width in pixels
-        const snap_pixels = (snap_ms / step_ms) * this.config.column_width;
+        const snap_pixels = (snap_ms / step_ms) * this.config.step.column_width;
 
         // Snap to nearest grid position
         const snapped_dx = Math.round(dx / snap_pixels) * snap_pixels;
@@ -1561,10 +1569,10 @@ export default class Gantt {
         const drn = snapped_dx > 0 ? 1 : -1;
         let ignored_regions = this.get_ignored_region(final_pos, drn);
         while (ignored_regions.length) {
-            final_pos += this.config.column_width * drn;
+            final_pos += this.config.step.column_width * drn;
             ignored_regions = this.get_ignored_region(final_pos, drn);
             if (!ignored_regions.length)
-                final_pos -= this.config.column_width * drn;
+                final_pos -= this.config.step.column_width * drn;
         }
         return final_pos - ox;
     }
@@ -1572,11 +1580,11 @@ export default class Gantt {
     get_ignored_region(pos, drn = 1) {
         if (drn === 1) {
             return this.config.ignored_positions.filter((val) => {
-                return pos > val && pos <= val + this.config.column_width;
+                return pos > val && pos <= val + this.config.step.column_width;
             });
         } else {
             return this.config.ignored_positions.filter(
-                (val) => pos >= val && pos < val + this.config.column_width,
+                (val) => pos >= val && pos < val + this.config.step.column_width,
             );
         }
     }
