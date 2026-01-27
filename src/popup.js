@@ -1,13 +1,24 @@
+/**
+ * Popup - Task detail popup component
+ *
+ * Displays task information on hover/click.
+ * Content is customizable via popup_func.
+ */
 export default class Popup {
-    constructor(parent, popup_func, gantt) {
+    /**
+     * @param {HTMLElement} parent - Container element for the popup
+     * @param {Function} popupFunc - Function that populates popup content
+     * @param {Gantt} gantt - Reference to the Gantt instance
+     */
+    constructor(parent, popupFunc, gantt) {
         this.parent = parent;
-        this.popup_func = popup_func;
+        this.popupFunc = popupFunc;
         this.gantt = gantt;
 
-        this.make();
+        this.init();
     }
 
-    make() {
+    init() {
         this.parent.innerHTML = `
             <div class="title"></div>
             <div class="subtitle"></div>
@@ -22,10 +33,20 @@ export default class Popup {
         this.actions = this.parent.querySelector('.actions');
     }
 
+    /**
+     * Show the popup with task information
+     * @param {Object} opts - Display options
+     * @param {number} opts.x - X position
+     * @param {number} opts.y - Y position
+     * @param {Task} opts.task - Task to display
+     * @param {Element} opts.target - Target element (bar)
+     */
     show({ x, y, task, target }) {
         this.actions.innerHTML = '';
-        let html = this.popup_func({
+
+        const html = this.popupFunc({
             task,
+            target,
             chart: this.gantt,
             get_title: () => this.title,
             set_title: (title) => (this.title.innerHTML = title),
@@ -34,16 +55,15 @@ export default class Popup {
             get_details: () => this.details,
             set_details: (details) => (this.details.innerHTML = details),
             add_action: (html, func) => {
-                let action = this.gantt.create_el({
-                    classes: 'action-btn',
-                    type: 'button',
-                    append_to: this.actions,
-                });
+                const action = document.createElement('button');
+                action.className = 'action-btn';
+                this.actions.appendChild(action);
                 if (typeof html === 'function') html = html(task);
                 action.innerHTML = html;
                 action.onclick = (e) => func(task, this.gantt, e);
             },
         });
+
         if (html === false) return;
         if (html) this.parent.innerHTML = html;
 
