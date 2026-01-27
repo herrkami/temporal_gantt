@@ -41,7 +41,7 @@ export default class Viewport {
     xToDate(x) {
         const msOffset = x * this.msPerPixel;
         return Temporal.Instant.fromEpochMilliseconds(
-            this.visible.start.epochMilliseconds + msOffset
+            Math.round(this.visible.start.epochMilliseconds + msOffset)
         );
     }
 
@@ -52,13 +52,13 @@ export default class Viewport {
         if (this.bounds.min && Temporal.Instant.compare(newStart, this.bounds.min) < 0) {
             const msShift = this.bounds.min.epochMilliseconds - newStart.epochMilliseconds;
             newStart = this.bounds.min;
-            newEnd = Temporal.Instant.fromEpochMilliseconds(newEnd.epochMilliseconds + msShift);
+            newEnd = Temporal.Instant.fromEpochMilliseconds(Math.round(newEnd.epochMilliseconds + msShift));
         }
 
         if (this.bounds.max && Temporal.Instant.compare(newEnd, this.bounds.max) > 0) {
             const msShift = newEnd.epochMilliseconds - this.bounds.max.epochMilliseconds;
             newEnd = this.bounds.max;
-            newStart = Temporal.Instant.fromEpochMilliseconds(newStart.epochMilliseconds - msShift);
+            newStart = Temporal.Instant.fromEpochMilliseconds(Math.round(newStart.epochMilliseconds - msShift));
 
             if (this.bounds.min && Temporal.Instant.compare(newStart, this.bounds.min) < 0) {
                 newStart = this.bounds.min;
@@ -78,10 +78,10 @@ export default class Viewport {
     pan(deltaPixels) {
         const deltaMs = deltaPixels * this.msPerPixel;
         const newStart = Temporal.Instant.fromEpochMilliseconds(
-            this.visible.start.epochMilliseconds + deltaMs
+            Math.round(this.visible.start.epochMilliseconds + deltaMs)
         );
         const newEnd = Temporal.Instant.fromEpochMilliseconds(
-            this.visible.end.epochMilliseconds + deltaMs
+            Math.round(this.visible.end.epochMilliseconds + deltaMs)
         );
         return this.setVisible(newStart, newEnd);
     }

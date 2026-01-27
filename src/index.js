@@ -1,7 +1,6 @@
 import {
     ensureInstant,
     toPlainDateTime,
-    toInstant,
     Temporal,
     floor,
     parseInstant,
@@ -9,14 +8,12 @@ import {
     parseDurationString,
     add,
     diff,
-    format,
-    getDaysInMonth,
-    getDaysInYear,
 } from './temporal_utils';
 import { $, createSVG } from './svg_utils';
 
 import Arrow from './arrow';
 import Bar from './bar';
+import Grid from './grid';
 import Popup from './popup';
 import Viewport from './viewport';
 
@@ -355,7 +352,8 @@ export default class Gantt {
 
     setup_grid_dates(refresh = false, target_date = null) {
         this.setup_grid_range(refresh, target_date);
-        this.setup_grid_date_values();
+        // Note: grid.dates is no longer pre-computed here
+        // Grid class generates dates on-demand via getDates()
         this.setup_viewport();
     }
 
@@ -390,6 +388,16 @@ export default class Gantt {
         } else {
             this.viewport = new Viewport(viewportOptions);
         }
+
+        // Create or update Grid
+        if (!this.gridRenderer) {
+            this.gridRenderer = new Grid({
+                viewport: this.viewport,
+                gantt: this,
+            });
+        }
+        this.gridRenderer.viewport = this.viewport;
+        this.gridRenderer.setViewMode(this.config.view_mode);
     }
 
     setup_grid_range(refresh, target_date = null) {
@@ -472,20 +480,6 @@ export default class Gantt {
         }
     }
 
-    setup_grid_date_values() {
-        let cur_pdt = toPlainDateTime(this.grid.start);
-        this.grid.dates = [this.grid.start];
-
-        // Use Duration for date iteration
-        const step_duration = parseDuration(this.config.view_mode.step);
-        const gantt_end_pdt = toPlainDateTime(this.grid.end);
-
-        while (Temporal.PlainDateTime.compare(cur_pdt, gantt_end_pdt) < 0) {
-            cur_pdt = cur_pdt.add(step_duration);
-            this.grid.dates.push(toInstant(cur_pdt));
-        }
-    }
-
     bind_events() {
         this.bind_grid_click();
         this.bind_holiday_labels();
@@ -495,9 +489,11 @@ export default class Gantt {
     render() {
         this.clear();
         this.setup_layers();
-        this.make_grid();
-        this.make_dates();
-        this.make_grid_extras();
+        // Use Grid for rendering
+        this.gridRenderer.render(this.layers, this.$container);
+        this.make_side_header();
+        this.gridRenderer.renderDateLabels();
+        this.gridRenderer.renderExtras();
         this.make_bars();
         this.make_arrows();
         this.map_arrows_on_bars();
@@ -525,89 +521,6 @@ export default class Gantt {
             type: 'button',
         });
         this.$adjust.innerHTML = '&larr;';
-    }
-
-    make_grid() {
-        this.make_grid_background();
-        this.make_grid_rows();
-        this.make_grid_header();
-        this.make_side_header();
-    }
-
-    make_grid_extras() {
-        this.make_grid_highlights();
-        this.make_grid_ticks();
-    }
-
-    make_grid_background() {
-        const grid_width = this.grid.dates.length * this.config.step.column_width;
-        const grid_height = Math.max(
-            this.config.header_height +
-            this.options.padding +
-            (this.options.bar_height + this.options.padding) *
-            this.tasks.length -
-            10,
-            this.options.container_height !== 'auto'
-                ? this.options.container_height
-                : 0,
-        );
-
-        createSVG('rect', {
-            x: 0,
-            y: 0,
-            width: grid_width,
-            height: grid_height,
-            class: 'grid-background',
-            append_to: this.$svg,
-        });
-
-        $.attr(this.$svg, {
-            height: grid_height,
-            width: '100%',
-        });
-        this.grid_height = grid_height;
-        if (this.options.container_height === 'auto')
-            this.$container.style.height = grid_height + 'px';
-    }
-
-    make_grid_rows() {
-        const rows_layer = createSVG('g', { append_to: this.layers.grid });
-
-        const row_width = this.grid.dates.length * this.config.step.column_width;
-        const row_height = this.options.bar_height + this.options.padding;
-
-        let y = this.config.header_height;
-        for (
-            let y = this.config.header_height;
-            y < this.grid_height;
-            y += row_height
-        ) {
-            createSVG('rect', {
-                x: 0,
-                y,
-                width: row_width,
-                height: row_height,
-                class: 'grid-row',
-                append_to: rows_layer,
-            });
-        }
-    }
-
-    make_grid_header() {
-        this.$header = this.create_el({
-            width: this.grid.dates.length * this.config.step.column_width,
-            classes: 'grid-header',
-            append_to: this.$container,
-        });
-
-        this.$upper_header = this.create_el({
-            classes: 'upper-header',
-            append_to: this.$header,
-        });
-        this.$lower_header = this.create_el({
-            classes: 'lower-header',
-            append_to: this.$header,
-        });
     }
 
     make_side_header() {
@@ -654,256 +567,6 @@ export default class Gantt {
         }
     }
 
-    make_grid_ticks() {
-        if (this.options.lines === 'none') return;
-        let tick_x = 0;
-        let tick_y = this.config.header_height;
-        let tick_height = this.grid_height - this.config.header_height;
-
-        let $lines_layer = createSVG('g', {
-            class: 'lines_layer',
-            append_to: this.layers.grid,
-        });
-
-        let row_y = this.config.header_height;
-
-        const row_width = this.grid.dates.length * this.config.step.column_width;
-        const row_height = this.options.bar_height + this.options.padding;
-        if (this.options.lines !== 'vertical') {
-            for (
-                let y = this.config.header_height;
-                y < this.grid_height;
-                y += row_height
-            ) {
-                createSVG('line', {
-                    x1: 0,
-                    y1: row_y + row_height,
-                    x2: row_width,
-                    y2: row_y + row_height,
-                    class: 'row-line',
-                    append_to: $lines_layer,
-                });
-                row_y += row_height;
-            }
-        }
-        if (this.options.lines === 'horizontal') return;
-
-        for (let instant of this.grid.dates) {
-            let tick_class = 'tick';
-            if (
-                this.config.view_mode.thick_line &&
-                this.config.view_mode.thick_line(instant)
-            ) {
-                tick_class += ' thick';
-            }
-
-            createSVG('path', {
-                d: `M ${tick_x} ${tick_y} v ${tick_height}`,
-                class: tick_class,
-                append_to: this.layers.grid,
-            });
-
-            if (this.view_is('month')) {
-                tick_x +=
-                    (getDaysInMonth(instant) *
-                        this.config.step.column_width) /
-                    30;
-            } else if (this.view_is('year')) {
-                tick_x +=
-                    (getDaysInYear(instant) *
-                        this.config.step.column_width) /
-                    365;
-            } else {
-                tick_x += this.config.step.column_width;
-            }
-        }
-    }
-
-    highlight_holidays() {
-        let labels = new Map();
-        if (!this.options.holidays) return;
-
-        const oneDay = Temporal.Duration.from({ days: 1 });
-
-        for (let color in this.options.holidays) {
-            let check_highlight = this.options.holidays[color];
-            if (check_highlight === 'weekend')
-                check_highlight = this.options.is_weekend || DEFAULT_OPTIONS.is_weekend;
-            let extra_func;
-
-            if (typeof check_highlight === 'object') {
-                // Check if it's a single named holiday object {date, name}
-                if (check_highlight.name && check_highlight.date) {
-                    let dateInstant = ensureInstant(check_highlight.date + ' ');
-                    labels.set(dateInstant.toString(), check_highlight.name);
-                    check_highlight = (instant) =>
-                        Temporal.Instant.compare(dateInstant, ensureInstant(instant)) === 0;
-                } else if (Array.isArray(check_highlight)) {
-                    // It's an array of dates/objects
-                    let f = check_highlight.find((k) => typeof k === 'function');
-                    if (f) {
-                        extra_func = f;
-                    }
-                    const holidayInstants = this.options.holidays[color]
-                        .filter((k) => typeof k !== 'function')
-                        .map((k) => {
-                            if (k.name) {
-                                let dateInstant = ensureInstant(k.date + ' ');
-                                labels.set(dateInstant.toString(), k.name);
-                                return dateInstant;
-                            }
-                            return ensureInstant(k + ' ');
-                        });
-                    check_highlight = (instant) =>
-                        holidayInstants.some((hi) => Temporal.Instant.compare(hi, ensureInstant(instant)) === 0);
-                }
-            }
-
-            // Skip if check_highlight is not a valid function
-            if (typeof check_highlight !== 'function') {
-                continue;
-            }
-
-            // Iterate through days using Duration
-            let currentPdt = toPlainDateTime(this.grid.start);
-            const endPdt = toPlainDateTime(this.grid.end);
-
-            while (Temporal.PlainDateTime.compare(currentPdt, endPdt) <= 0) {
-                const d = toInstant(currentPdt);
-
-                if (
-                    this.config.ignored_dates.some(
-                        (k) => Temporal.Instant.compare(ensureInstant(k), d) === 0,
-                    ) ||
-                    (this.config.ignored_function &&
-                        this.config.ignored_function(d))
-                ) {
-                    currentPdt = currentPdt.add(oneDay);
-                    continue;
-                }
-
-                if (check_highlight(d) || (extra_func && extra_func(d))) {
-                    const x = this.viewport.dateToX(d);
-                    const nextDay = add(d, 1, 'day');
-                    const next_x = this.viewport.dateToX(nextDay);
-                    const width = next_x - x;
-
-                    const height = this.grid_height - this.config.header_height;
-                    const d_formatted = format(d, 'YYYY-MM-DD', this.options.language)
-                        .replace(' ', '_');
-
-                    const labelText = labels.get(d.toString());
-                    if (labelText) {
-                        let label = this.create_el({
-                            classes: 'holiday-label ' + 'label_' + d_formatted,
-                            append_to: this.$extras,
-                        });
-                        label.textContent = labelText;
-                    }
-                    createSVG('rect', {
-                        x: Math.round(x),
-                        y: this.config.header_height,
-                        width,
-                        height,
-                        class: 'holiday-highlight ' + d_formatted,
-                        style: `fill: ${color};`,
-                        append_to: this.layers.grid,
-                    });
-                }
-                currentPdt = currentPdt.add(oneDay);
-            }
-        }
-    }
-
-    /**
-     * Compute the horizontal x-axis distance and associated date for the current date and view.
-     *
-     * @returns Object containing the x-axis distance and date of the current date, or null if the current date is out of the gantt range.
-     */
-    highlight_current() {
-        const res = this.get_closest_date();
-        if (!res) return;
-
-        const [_, el] = res;
-        el.classList.add('current-date-highlight');
-
-        const now = Temporal.Now.instant();
-        const left = this.viewport.dateToX(now);
-
-        this.$current_highlight = this.create_el({
-            top: this.config.header_height,
-            left,
-            height: this.grid_height - this.config.header_height,
-            classes: 'current-highlight',
-            append_to: this.$container,
-        });
-        this.$current_ball_highlight = this.create_el({
-            top: this.config.header_height - 6,
-            left: left - 2.5,
-            width: 6,
-            height: 6,
-            classes: 'current-ball-highlight',
-            append_to: this.$header,
-        });
-    }
-
-    make_grid_highlights() {
-        this.highlight_holidays();
-        this.config.ignored_positions = [];
-
-        const height =
-            (this.options.bar_height + this.options.padding) *
-            this.tasks.length;
-        this.layers.grid.innerHTML += `<pattern id="diagonalHatch" patternUnits="userSpaceOnUse" width="4" height="4">
-          <path d="M-1,1 l2,-2
-                   M0,4 l4,-4
-                   M3,5 l2,-2"
-                style="stroke:grey; stroke-width:0.3" />
-        </pattern>`;
-
-        const oneDay = Temporal.Duration.from({ days: 1 });
-        let currentPdt = toPlainDateTime(this.grid.start);
-        const endPdt = toPlainDateTime(this.grid.end);
-
-        while (Temporal.PlainDateTime.compare(currentPdt, endPdt) <= 0) {
-            const d = toInstant(currentPdt);
-
-            if (
-                // TODO
-                // Arbitrary ignored_dates requires different check
-                !this.config.ignored_dates.some(
-                    (k) => Temporal.Instant.compare(ensureInstant(k), d) === 0,
-                ) &&
-                (!this.config.ignored_function ||
-                    !this.config.ignored_function(d))
-            ) {
-                currentPdt = currentPdt.add(oneDay);
-                continue;
-            }
-
-            const x = this.viewport.dateToX(d);
-
-            this.config.ignored_positions.push(x);
-            createSVG('rect', {
-                x,
-                y: this.config.header_height,
-                width: this.config.step.column_width,
-                height: height,
-                class: 'ignored-bar',
-                style: 'fill: url(#diagonalHatch);',
-                append_to: this.$svg,
-            });
-
-            currentPdt = currentPdt.add(oneDay);
-        }
-
-        const highlightDimensions = this.highlight_current(
-            this.config.view_mode,
-        );
-
-        if (!highlightDimensions) return;
-    }
-
     create_el({ left, top, width, height, id, classes, append_to, type }) {
         let $el = document.createElement(type || 'div');
         for (let cls of classes.split(' ')) $el.classList.add(cls);
@@ -914,94 +577,6 @@ export default class Gantt {
         if (height) $el.style.height = height + 'px';
         if (append_to) append_to.appendChild($el);
         return $el;
-    }
-
-    make_dates() {
-        this.get_dates_to_draw().forEach((date, i) => {
-            if (date.lower_text) {
-                let $lower_text = this.create_el({
-                    left: date.x,
-                    top: date.lower_y,
-                    classes: 'lower-text date_' + sanitize(date.formatted_date),
-                    append_to: this.$lower_header,
-                });
-                $lower_text.innerText = date.lower_text;
-            }
-
-            if (date.upper_text) {
-                let $upper_text = this.create_el({
-                    left: date.x,
-                    top: date.upper_y,
-                    classes: 'upper-text',
-                    append_to: this.$upper_header,
-                });
-                $upper_text.innerText = date.upper_text;
-            }
-        });
-        this.upperTexts = Array.from(
-            this.$container.querySelectorAll('.upper-text'),
-        );
-    }
-
-    get_dates_to_draw() {
-        let last_date_info = null;
-        const dates = this.grid.dates.map((instant, i) => {
-            const d = this.get_date_info(instant, last_date_info, i);
-            last_date_info = d;
-            return d;
-        });
-        return dates;
-    }
-
-    get_date_info(instant, last_date_info) {
-        let last_instant = last_date_info ? last_date_info.instant : null;
-
-        const x = last_date_info
-            ? last_date_info.x + last_date_info.column_width
-            : 0;
-
-        let upper_text = this.config.view_mode.upper_text;
-        let lower_text = this.config.view_mode.lower_text;
-
-        if (!upper_text) {
-            this.config.view_mode.upper_text = () => '';
-        } else if (typeof upper_text === 'string') {
-            this.config.view_mode.upper_text = (instant) =>
-                format(instant, upper_text, this.options.language);
-        }
-
-        if (!lower_text) {
-            this.config.view_mode.lower_text = () => '';
-        } else if (typeof lower_text === 'string') {
-            this.config.view_mode.lower_text = (instant) =>
-                format(instant, lower_text, this.options.language);
-        }
-
-        return {
-            instant,
-            date: instant, // backward compatibility
-            formatted_date: sanitize(
-                format(
-                    instant,
-                    this.config.date_format,
-                    this.options.language,
-                ),
-            ),
-            column_width: this.config.step.column_width,
-            x,
-            upper_text: this.config.view_mode.upper_text(
-                instant,
-                last_instant,
-                this.options.language,
-            ),
-            lower_text: this.config.view_mode.lower_text(
-                instant,
-                last_instant,
-                this.options.language,
-            ),
-            upper_y: 17,
-            lower_y: this.options.upper_header_height + 5,
-        };
     }
 
     make_bars() {
@@ -1115,50 +690,7 @@ export default class Gantt {
     }
 
     get_closest_date() {
-        const now = Temporal.Now.instant();
-
-        if (Temporal.Instant.compare(now, this.grid.start) < 0 ||
-            Temporal.Instant.compare(now, this.grid.end) > 0) return null;
-
-        let current = Temporal.Now.instant();
-        let el = this.$container.querySelector(
-            '.date_' +
-            sanitize(
-                format(
-                    current,
-                    this.config.date_format,
-                    this.options.language,
-                ),
-            ),
-        );
-
-        // safety check to prevent infinite loop
-        let c = 0;
-        while (!el && c < this.config.step.interval) {
-            current = add(current, -1, this.config.step.unit);
-            el = this.$container.querySelector(
-                '.date_' +
-                sanitize(
-                    format(
-                        current,
-                        this.config.date_format,
-                        this.options.language,
-                    ),
-                ),
-            );
-            c++;
-        }
-
-        // Parse the formatted date string back to an instant
-        const formattedDate = format(
-            current,
-            this.config.date_format,
-            this.options.language,
-        );
-        return [
-            ensureInstant(formattedDate + ' '),
-            el,
-        ];
+        return this.gridRenderer.getClosestDate();
     }
 
     bind_grid_click() {
@@ -1305,7 +837,7 @@ export default class Gantt {
                         this.config.step.unit,
                     );
                     this.viewport.extendBounds('past', extendUnits);
-                    this.setup_grid_date_values();
+                    // Grid generates dates on-demand, no need to call setup_grid_date_values()
                     this.render();
                     e.currentTarget.scrollLeft =
                         old_scroll_left +
@@ -1327,7 +859,7 @@ export default class Gantt {
                         this.config.step.unit,
                     );
                     this.viewport.extendBounds('future', extendUnits);
-                    this.setup_grid_date_values();
+                    // Grid generates dates on-demand, no need to call setup_grid_date_values()
                     this.render();
                     e.currentTarget.scrollLeft = old_scroll_left;
                     setTimeout(() => (extending = false), 100);
@@ -1720,8 +1252,4 @@ function generate_uid(task) {
     // TODO
     // Could be better
     return task.name + '_' + Math.random().toString(36).slice(2, 12);
-}
-
-function sanitize(s) {
-    return s.replaceAll(' ', '_').replaceAll(':', '_').replaceAll('.', '_');
 }
