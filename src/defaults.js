@@ -1,4 +1,3 @@
-import { Temporal } from 'temporal-polyfill';
 import { toPlainDateTime, ensureInstant, add, format, formatDatetime, formatDuration } from './temporal_utils';
 
 function getDecade(instant) {
@@ -183,27 +182,9 @@ const DEFAULT_OPTIONS = {
             { showMilliseconds: false, maxUnits: 4 },
         );
 
-        // Calculate working duration (excluding ignored periods)
-        const working_duration = formatDuration(
-            Temporal.Duration.from({ days: ctx.task.actual_duration }),
-            { showMilliseconds: false, maxUnits: 4 },
-        );
-
-        const ignored_duration = ctx.task.ignored_duration
-            ? formatDuration(
-                  Temporal.Duration.from({ days: ctx.task.ignored_duration }),
-                  { showMilliseconds: false, maxUnits: 3 },
-              )
-            : null;
-
         let details = `<strong>Start:</strong> ${start_time}<br/>`;
         details += `<strong>End:</strong> ${end_time}<br/>`;
-        details += `<strong>Total Duration:</strong> ${precise_duration}<br/>`;
-        details += `<strong>Working Duration:</strong> ${working_duration}`;
-
-        if (ignored_duration) {
-            details += `<br/><strong>Excluded Time:</strong> ${ignored_duration}`;
-        }
+        details += `<strong>Duration:</strong> ${precise_duration}`;
 
         details += `<br/><strong>Progress:</strong> ${Math.floor(ctx.task.progress * 100) / 100}%`;
 

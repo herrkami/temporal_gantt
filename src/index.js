@@ -11,7 +11,7 @@ import {
 import { $, createSVG } from './svg_utils';
 
 import Arrow from './arrow';
-import Bar from './bar';
+import Bars from './bars';
 import Grid from './grid';
 import Popup from './popup';
 import Tasks from './tasks';
@@ -26,6 +26,7 @@ export default class Gantt {
         this.config = {};
         this.grid = {};
         this.taskStore = new Tasks();
+        this.barStore = new Bars(this);
 
         this.setup_wrapper(wrapper);
         this.setup_options(options);
@@ -464,11 +465,9 @@ export default class Gantt {
     }
 
     make_bars() {
-        this.bars = this.tasks.map((task) => {
-            const bar = new Bar(this, task);
-            this.layers.bar.appendChild(bar.group);
-            return bar;
-        });
+        this.barStore.render(this.layers.bar);
+        // Alias for backward compatibility
+        this.bars = this.barStore.getAll();
     }
 
     make_arrows() {
@@ -493,14 +492,7 @@ export default class Gantt {
     }
 
     map_arrows_on_bars() {
-        for (let bar of this.bars) {
-            bar.arrows = this.arrows.filter((arrow) => {
-                return (
-                    arrow.from_task.task.uid === bar.task.uid ||
-                    arrow.to_task.task.uid === bar.task.uid
-                );
-            });
-        }
+        this.barStore.mapArrows(this.arrows);
     }
 
     set_dimensions() {
@@ -825,7 +817,7 @@ export default class Gantt {
                 localBars = ids.map((id) => this.get_bar(id));
                 if (this.options.auto_move_label) {
                     localBars.forEach((bar) => {
-                        bar.update_label_position_on_horizontal_scroll({
+                        bar.updateLabelPositionOnHorizontalScroll({
                             x: dx,
                             sx: e.currentTarget.scrollLeft,
                         });
@@ -840,22 +832,22 @@ export default class Gantt {
 
             bars.forEach((bar) => {
                 const $bar = bar.$bar;
-                $bar.finaldx = this.get_snap_position(dx, $bar.ox);
+                $bar.finaldx = this.get_snap_position(dx);
                 this.hide_popup();
                 if (is_resizing_left) {
                     if (parent_bar_id === bar.task.uid) {
-                        bar.update_bar_position({
+                        bar.updateBarPosition({
                             x: $bar.ox + $bar.finaldx,
                             width: $bar.owidth - $bar.finaldx,
                         });
                     } else {
-                        bar.update_bar_position({
+                        bar.updateBarPosition({
                             x: $bar.ox + $bar.finaldx,
                         });
                     }
                 } else if (is_resizing_right) {
                     if (parent_bar_id === bar.task.uid) {
-                        bar.update_bar_position({
+                        bar.updateBarPosition({
                             width: $bar.owidth + $bar.finaldx,
                         });
                     }
@@ -864,7 +856,7 @@ export default class Gantt {
                     !this.options.readonly &&
                     !this.options.readonly_dates
                 ) {
-                    bar.update_bar_position({ x: $bar.ox + $bar.finaldx });
+                    bar.updateBarPosition({ x: $bar.ox + $bar.finaldx });
                 }
             });
         });
@@ -883,9 +875,26 @@ export default class Gantt {
             bars.forEach((bar) => {
                 const $bar = bar.$bar;
                 if (!$bar.finaldx) return;
-                bar.date_changed();
-                bar.compute_progress();
-                bar.set_action_completed();
+
+                // Compute new dates from visual position
+                const { newStart, newEnd } = bar.computeStartEndFromPosition();
+
+                // Update task data
+                const changed =
+                    Temporal.Instant.compare(bar.task.start, newStart) !== 0 ||
+                    Temporal.Instant.compare(bar.task.end, newEnd) !== 0;
+
+                if (changed) {
+                    bar.task.start = newStart;
+                    bar.task.end = newEnd;
+                    this.trigger_event('date_change', [
+                        bar.task,
+                        newStart,
+                        add(newEnd, -1, 'second'),
+                    ]);
+                }
+
+                bar.setActionCompleted();
             });
         });
 
@@ -917,40 +926,11 @@ export default class Gantt {
             $bar_progress.max_dx = $bar.getWidth() - $bar_progress.getWidth();
         });
 
-        const range_positions = this.config.ignored_positions.map((d) => [
-            d,
-            d + this.config.step.column_width,
-        ]);
-
         $.on(this.$svg, 'mousemove', (e) => {
             if (!is_resizing) return;
-            let now_x = e.offsetX || e.layerX;
-
-            let moving_right = now_x > x_on_start;
-            if (moving_right) {
-                let k = range_positions.find(
-                    ([begin, end]) => now_x >= begin && now_x < end,
-                );
-                while (k) {
-                    now_x = k[1];
-                    k = range_positions.find(
-                        ([begin, end]) => now_x >= begin && now_x < end,
-                    );
-                }
-            } else {
-                let k = range_positions.find(
-                    ([begin, end]) => now_x > begin && now_x <= end,
-                );
-                while (k) {
-                    now_x = k[0];
-                    k = range_positions.find(
-                        ([begin, end]) => now_x > begin && now_x <= end,
-                    );
-                }
-            }
+            const now_x = e.offsetX || e.layerX;
 
             let dx = now_x - x_on_start;
-            console.log($bar_progress);
             if (dx > $bar_progress.max_dx) {
                 dx = $bar_progress.max_dx;
             }
@@ -969,8 +949,13 @@ export default class Gantt {
             if (!($bar_progress && $bar_progress.finaldx)) return;
 
             $bar_progress.finaldx = 0;
-            bar.progress_changed();
-            bar.set_action_completed();
+
+            // Compute new progress from visual position
+            const newProgress = bar.computeProgressFromPosition();
+            bar.task.progress = newProgress;
+            this.trigger_event('progress_change', [bar.task, newProgress]);
+
+            bar.setActionCompleted();
             bar = null;
             $bar_progress = null;
             $bar = null;
@@ -981,7 +966,7 @@ export default class Gantt {
         return this.taskStore.getAllDependentIds(task_id);
     }
 
-    get_snap_position(dx, ox) {
+    get_snap_position(dx) {
         const step_duration = parseDuration(this.config.view_mode.step);
         const default_snap =
             this.options.snap_at || this.config.view_mode.snap_at || '1d';
@@ -1001,30 +986,7 @@ export default class Gantt {
         const snap_pixels = (snap_ms / step_ms) * this.config.step.column_width;
 
         // Snap to nearest grid position
-        const snapped_dx = Math.round(dx / snap_pixels) * snap_pixels;
-        let final_pos = ox + snapped_dx;
-
-        const drn = snapped_dx > 0 ? 1 : -1;
-        let ignored_regions = this.get_ignored_region(final_pos, drn);
-        while (ignored_regions.length) {
-            final_pos += this.config.step.column_width * drn;
-            ignored_regions = this.get_ignored_region(final_pos, drn);
-            if (!ignored_regions.length)
-                final_pos -= this.config.step.column_width * drn;
-        }
-        return final_pos - ox;
-    }
-
-    get_ignored_region(pos, drn = 1) {
-        if (drn === 1) {
-            return this.config.ignored_positions.filter((val) => {
-                return pos > val && pos <= val + this.config.step.column_width;
-            });
-        } else {
-            return this.config.ignored_positions.filter(
-                (val) => pos >= val && pos < val + this.config.step.column_width,
-            );
-        }
+        return Math.round(dx / snap_pixels) * snap_pixels;
     }
 
     unselect_all() {
@@ -1051,9 +1013,7 @@ export default class Gantt {
     }
 
     get_bar(id) {
-        return this.bars.find((bar) => {
-            return bar.task.uid === id;
-        });
+        return this.barStore.get(id);
     }
 
     show_popup(opts) {

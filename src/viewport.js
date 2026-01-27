@@ -45,6 +45,27 @@ export default class Viewport {
         );
     }
 
+    /**
+     * Convert a Duration to pixel width
+     * @param {Temporal.Duration} duration
+     * @returns {number} pixels
+     */
+    durationToPixels(duration) {
+        const relativeTo = Temporal.Now.plainDateISO();
+        const ms = duration.total({ unit: 'milliseconds', relativeTo });
+        return ms / this.msPerPixel;
+    }
+
+    /**
+     * Convert pixel width to Duration
+     * @param {number} pixels
+     * @returns {Temporal.Duration}
+     */
+    pixelsToDuration(pixels) {
+        const ms = Math.round(pixels * this.msPerPixel);
+        return Temporal.Duration.from({ milliseconds: ms });
+    }
+
     setVisible(start, end) {
         let newStart = ensureInstant(start);
         let newEnd = ensureInstant(end);
