@@ -7,7 +7,6 @@ import {
     parseDuration,
     parseDurationString,
     add,
-    diff,
 } from './temporal_utils';
 import { $, createSVG } from './svg_utils';
 
@@ -15,6 +14,7 @@ import Arrow from './arrow';
 import Bar from './bar';
 import Grid from './grid';
 import Popup from './popup';
+import Tasks from './tasks';
 import Viewport from './viewport';
 
 import { DEFAULT_OPTIONS, DEFAULT_VIEW_MODES } from './defaults';
@@ -25,13 +25,13 @@ export default class Gantt {
     constructor(wrapper, tasks, options) {
         this.config = {};
         this.grid = {};
+        this.taskStore = new Tasks();
 
         this.setup_wrapper(wrapper);
         this.setup_options(options);
         this.load_task_list(tasks);
         this.change_view_mode();
         this.bind_events();
-
     }
 
     setup_wrapper(element) {
@@ -159,127 +159,10 @@ export default class Gantt {
     }
 
     load_task_list(task_list) {
-        // TODO This function should only read the task description. Deriving
-        // missing start/end/duration should happen in a separate scheduler.
-        this.tasks = task_list.map((task_raw, i) => {
-            let task = {};
-
-            // Copy name
-            task.name = task_raw.name;
-            // Copy progress
-            task.progress = task_raw.progress;
-
-            // Copy or assign unique ID
-            if (!task_raw.id) {
-                task.uid = generate_uid(task_raw);
-            } else if (typeof task_raw.id === 'string') {
-                task.uid = task_raw.id.replaceAll(' ', '_');
-            } else {
-                // TODO looks a bit unsafe
-                task.uid = `${task_raw.id}`;
-            }
-
-            // Dependencies
-            let deps = [];
-            if (typeof task_raw.dependencies === 'string') {
-                deps = task_raw.dependencies
-                    .split(',')
-                    .map((d) => d.trim().replaceAll(' ', '_'))
-                    .filter((d) => d);
-            }
-            task.dependencies = deps;
-
-            // Start must be defined
-            if (!task_raw.start) {
-                console.error(
-                    `task "${task_raw.name}" (ID: "${task_raw.id}") doesn't have a start date`,
-                );
-                return false;
-            } else {
-                task.start = parseInstant(task_raw.start);
-            }
-
-            // Parse duration if defined
-            if (task_raw.duration !== undefined) {
-                // E.g. '4h 30min'
-                task_raw.duration.split(' ').forEach((ds) => {
-                    let { value, unit } =
-                        parseDurationString(ds);
-                    task.end = add(task.start, value, unit);
-                    task.duration = diff(task.end, task.start);
-                });
-            }
-
-            // Parse end if defined
-            if (task_raw.end !== undefined) {
-                const desc_end = parseInstant(task_raw.end);
-                if (task.end !== undefined) {
-                    // End has already been derived from duration
-                    if (Temporal.Instant.compare(task.end, desc_end) != 0) {
-                        // Redundantly consistent
-                        console.warn(
-                            `end of task "${task_raw.name}" (ID: "${task_raw.id}") is redundantly defined by duration`,
-                        );
-                    } else {
-                        // Duration and end inconsistent
-                        console.error(
-                            `end date of task "${task_raw.name}" (ID: "${task_raw.id}") contradicts its start and duration`,
-                        );
-                        return false;
-                    }
-                } else {
-                    task.end = desc_end;
-                }
-            }
-
-            // Neither duration nor end were defined
-            if (!task.end) {
-                console.error(`task "${task_raw.name}" (ID: "${task_raw.id}") has neither end date nor duration`);
-                return false;
-            }
-
-            // Check if end is before start
-            if (Temporal.Instant.compare(task.end, task.start) < 0) {
-                console.error(
-                    `start of task can't be after end of task: in task "${task_raw.name}" (ID: "${task_raw.id}")`,
-                );
-                return false;
-            }
-
-            // Invalidate task if duration too large
-            if (diff(task.end, task.start, 'year') > 10) {
-                console.error(
-                    `the duration of task "${task_raw.name}" (ID: "${task_raw.id}") is too long (above ten years)`,
-                );
-                return false;
-            }
-
-            // Cache index
-            task._index = i;
-
-            // TODO: This check should be performed on the task description earlier
-            // If hours is not set, assume the last day is a full day
-            // e.g: 2018-09-09 becomes 2018-09-09 23:59:59
-            const task_end_pdt = toPlainDateTime(task.end);
-            if (task_end_pdt.hour === 0 && task_end_pdt.minute === 0 &&
-                task_end_pdt.second === 0 && task_end_pdt.millisecond === 0) {
-                task.end = add(task.end, 24, 'hour');
-            }
-            return task;
-        })
-            // Keep only non-false tasks
-            .filter((t) => t);
-        this.setup_dependencies();
-    }
-
-    setup_dependencies() {
-        this.dependency_map = {};
-        for (let t of this.tasks) {
-            for (let d of t.dependencies) {
-                this.dependency_map[d] = this.dependency_map[d] || [];
-                this.dependency_map[d].push(t.uid);
-            }
-        }
+        this.taskStore.load(task_list);
+        // Alias for backward compatibility and convenience
+        this.tasks = this.taskStore.getAll();
+        this.dependency_map = this.taskStore.getDependencyMap();
     }
 
     refresh(tasks) {
@@ -288,10 +171,11 @@ export default class Gantt {
     }
 
     update_task(id, new_details) {
-        let task = this.tasks.find((t) => t.uid === id);
-        let bar = this.bars[task._index];
-        Object.assign(task, new_details);
-        bar.refresh();
+        const task = this.taskStore.update(id, new_details);
+        if (task) {
+            const bar = this.bars[task._index];
+            bar.refresh();
+        }
     }
 
     change_view_mode(mode = this.options.view_mode, maintain_pos = false) {
@@ -1094,19 +978,7 @@ export default class Gantt {
     }
 
     get_all_dependent_tasks(task_id) {
-        let out = [];
-        let to_process = [task_id];
-        while (to_process.length) {
-            const deps = to_process.reduce((acc, curr) => {
-                acc = acc.concat(this.dependency_map[curr]);
-                return acc;
-            }, []);
-
-            out = out.concat(deps);
-            to_process = deps.filter((d) => !to_process.includes(d));
-        }
-
-        return out.filter(Boolean);
+        return this.taskStore.getAllDependentIds(task_id);
     }
 
     get_snap_position(dx, ox) {
@@ -1175,9 +1047,7 @@ export default class Gantt {
     }
 
     get_task(id) {
-        return this.tasks.find((task) => {
-            return task.uid === id;
-        });
+        return this.taskStore.get(id);
     }
 
     get_bar(id) {
@@ -1215,12 +1085,7 @@ export default class Gantt {
      * @memberof Gantt
      */
     get_oldest_starting_date() {
-        if (!this.tasks.length) return Temporal.Now.instant();
-        return this.tasks
-            .map((task) => task.start)
-            .reduce((prev, cur) => {
-                return Temporal.Instant.compare(cur, prev) <= 0 ? cur : prev;
-            });
+        return this.taskStore.getOldestStart();
     }
 
     /**
@@ -1247,9 +1112,3 @@ Gantt.VIEW_MODE = {
     MONTH: DEFAULT_VIEW_MODES[5],
     YEAR: DEFAULT_VIEW_MODES[6],
 };
-
-function generate_uid(task) {
-    // TODO
-    // Could be better
-    return task.name + '_' + Math.random().toString(36).slice(2, 12);
-}
