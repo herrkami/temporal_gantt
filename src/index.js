@@ -10,7 +10,7 @@ import {
 } from './temporal_utils';
 import { $, createSVG } from './svg_utils';
 
-import Arrow from './arrow';
+import Arrows from './arrows';
 import Bars from './bars';
 import Grid from './grid';
 import Popup from './popup';
@@ -27,6 +27,7 @@ export default class Gantt {
         this.grid = {};
         this.taskStore = new Tasks();
         this.barStore = new Bars(this);
+        this.arrowStore = new Arrows(this);
 
         this.setup_wrapper(wrapper);
         this.setup_options(options);
@@ -381,7 +382,6 @@ export default class Gantt {
         this.gridRenderer.renderExtras();
         this.make_bars();
         this.make_arrows();
-        this.map_arrows_on_bars();
         this.set_dimensions();
         this.set_scroll_position(this.options.scroll_to);
     }
@@ -471,28 +471,9 @@ export default class Gantt {
     }
 
     make_arrows() {
-        this.arrows = [];
-        for (let task of this.tasks) {
-            let arrows = [];
-            arrows = task.dependencies
-                .map((task_id) => {
-                    const dependency = this.get_task(task_id);
-                    if (!dependency) return;
-                    const arrow = new Arrow(
-                        this,
-                        this.bars[dependency._index], // from_task
-                        this.bars[task._index], // to_task
-                    );
-                    this.layers.arrow.appendChild(arrow.element);
-                    return arrow;
-                })
-                .filter(Boolean); // filter falsy values
-            this.arrows = this.arrows.concat(arrows);
-        }
-    }
-
-    map_arrows_on_bars() {
-        this.barStore.mapArrows(this.arrows);
+        this.arrowStore.render(this.layers.arrow);
+        // Alias for backward compatibility
+        this.arrows = this.arrowStore.getAll();
     }
 
     set_dimensions() {

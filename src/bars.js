@@ -32,21 +32,6 @@ export default class Bars {
     }
 
     /**
-     * Associate arrows with their connected bars
-     * @param {Arrow[]} arrows - Array of Arrow instances
-     */
-    mapArrows(arrows) {
-        for (const bar of this._bars) {
-            bar.arrows = arrows.filter((arrow) => {
-                return (
-                    arrow.from_task.task.uid === bar.task.uid ||
-                    arrow.to_task.task.uid === bar.task.uid
-                );
-            });
-        }
-    }
-
-    /**
      * Get bar by task ID
      * @param {string} id - Task UID
      * @returns {Bar|undefined}

@@ -1,91 +1,110 @@
 import { createSVG } from './svg_utils';
 
+/**
+ * Arrow - Renders a dependency arrow between two bars
+ *
+ * Visual layer only - queries bars for positions.
+ */
 export default class Arrow {
-    constructor(gantt, from_task, to_task) {
+    /**
+     * @param {Gantt} gantt - Reference to the Gantt instance
+     * @param {Bar} fromBar - The predecessor bar (dependency)
+     * @param {Bar} toBar - The dependent bar
+     */
+    constructor(gantt, fromBar, toBar) {
         this.gantt = gantt;
-        this.from_task = from_task;
-        this.to_task = to_task;
+        this.from_task = fromBar;
+        this.to_task = toBar;
 
-        this.calculate_path();
+        this.calculatePath();
         this.draw();
     }
 
-    calculate_path() {
-        let start_x =
-            this.from_task.$bar.getX() + this.from_task.$bar.getWidth() / 2;
+    calculatePath() {
+        const fromBar = this.from_task;
+        const toBar = this.to_task;
+        const padding = this.gantt.options.padding;
+        const curve = this.gantt.options.arrow_curve;
 
-        const condition = () =>
-            this.to_task.$bar.getX() < start_x + this.gantt.options.padding &&
-            start_x > this.from_task.$bar.getX() + this.gantt.options.padding;
+        // Start point: bottom center of fromBar, adjusted left if needed
+        let startX = fromBar.$bar.getX() + fromBar.$bar.getWidth() / 2;
+        const startY = fromBar.$bar.getY() + fromBar.$bar.getHeight();
 
-        while (condition()) {
-            start_x -= 10;
+        // Adjust startX if toBar is too close or to the left
+        const minStartX = fromBar.$bar.getX() + padding;
+        while (toBar.$bar.getX() < startX + padding && startX > minStartX) {
+            startX -= 10;
         }
-        start_x -= 10;
+        startX -= 10;
 
-        let start_y =
-            this.gantt.config.header_height +
-            this.gantt.options.bar_height +
-            (this.gantt.options.padding + this.gantt.options.bar_height) *
-                this.from_task.task._index +
-            this.gantt.options.padding / 2;
+        // End point: left side of toBar (with arrowhead offset)
+        const endX = toBar.$bar.getX() - 13;
+        const endY = toBar.$bar.getY() + toBar.$bar.getHeight() / 2;
 
-        let end_x = this.to_task.$bar.getX() - 13;
-        let end_y =
-            this.gantt.config.header_height +
-            this.gantt.options.bar_height / 2 +
-            (this.gantt.options.padding + this.gantt.options.bar_height) *
-                this.to_task.task._index +
-            this.gantt.options.padding / 2;
+        // Direction: is fromBar below toBar?
+        const fromIsBelowTo = fromBar.task._index > toBar.task._index;
+        const clockwise = fromIsBelowTo ? 1 : 0;
 
-        const from_is_below_to =
-            this.from_task.task._index > this.to_task.task._index;
-
-        let curve = this.gantt.options.arrow_curve;
-        const clockwise = from_is_below_to ? 1 : 0;
-        let curve_y = from_is_below_to ? -curve : curve;
-
-        if (
-            this.to_task.$bar.getX() <=
-            this.from_task.$bar.getX() + this.gantt.options.padding
-        ) {
-            let down_1 = this.gantt.options.padding / 2 - curve;
-            if (down_1 < 0) {
-                down_1 = 0;
-                curve = this.gantt.options.padding / 2;
-                curve_y = from_is_below_to ? -curve : curve;
-            }
-            const down_2 =
-                this.to_task.$bar.getY() +
-                this.to_task.$bar.getHeight() / 2 -
-                curve_y;
-            const left = this.to_task.$bar.getX() - this.gantt.options.padding;
-            this.path = `
-                M ${start_x} ${start_y}
-                v ${down_1}
-                a ${curve} ${curve} 0 0 1 ${-curve} ${curve}
-                H ${left}
-                a ${curve} ${curve} 0 0 ${clockwise} ${-curve} ${curve_y}
-                V ${down_2}
-                a ${curve} ${curve} 0 0 ${clockwise} ${curve} ${curve_y}
-                L ${end_x} ${end_y}
-                m -5 -5
-                l 5 5
-                l -5 5`;
+        if (toBar.$bar.getX() <= fromBar.$bar.getX() + padding) {
+            // Complex path: need to go around
+            this.path = this.computeComplexPath(
+                startX, startY, endX, endY,
+                padding, curve, fromIsBelowTo, clockwise, toBar
+            );
         } else {
-            if (end_x < start_x + curve) curve = end_x - start_x;
-
-            let offset = from_is_below_to ? end_y + curve : end_y - curve;
-
-            this.path = `
-              M ${start_x} ${start_y}
-              V ${offset}
-              a ${curve} ${curve} 0 0 ${clockwise} ${curve} ${curve}
-              L ${end_x} ${end_y}
-              m -5 -5
-              l 5 5
-              l -5 5`;
+            // Simple path: direct vertical then horizontal
+            this.path = this.computeSimplePath(
+                startX, startY, endX, endY,
+                curve, fromIsBelowTo, clockwise
+            );
         }
+    }
+
+    computeComplexPath(startX, startY, endX, endY, padding, curve, fromIsBelowTo, clockwise, toBar) {
+        let adjustedCurve = curve;
+        let down1 = padding / 2 - adjustedCurve;
+
+        if (down1 < 0) {
+            down1 = 0;
+            adjustedCurve = padding / 2;
+        }
+
+        const curveY = fromIsBelowTo ? -adjustedCurve : adjustedCurve;
+        const down2 = toBar.$bar.getY() + toBar.$bar.getHeight() / 2 - curveY;
+        const left = toBar.$bar.getX() - padding;
+
+        return `
+            M ${startX} ${startY}
+            v ${down1}
+            a ${adjustedCurve} ${adjustedCurve} 0 0 1 ${-adjustedCurve} ${adjustedCurve}
+            H ${left}
+            a ${adjustedCurve} ${adjustedCurve} 0 0 ${clockwise} ${-adjustedCurve} ${curveY}
+            V ${down2}
+            a ${adjustedCurve} ${adjustedCurve} 0 0 ${clockwise} ${adjustedCurve} ${curveY}
+            L ${endX} ${endY}
+            m -5 -5
+            l 5 5
+            l -5 5`;
+    }
+
+    computeSimplePath(startX, startY, endX, endY, curve, fromIsBelowTo, clockwise) {
+        let adjustedCurve = curve;
+
+        if (endX < startX + adjustedCurve) {
+            adjustedCurve = endX - startX;
+        }
+
+        // Offset positions the vertical line endpoint so the arc lands at the right Y
+        const offset = fromIsBelowTo ? endY + adjustedCurve : endY - adjustedCurve;
+
+        return `
+            M ${startX} ${startY}
+            V ${offset}
+            a ${adjustedCurve} ${adjustedCurve} 0 0 ${clockwise} ${adjustedCurve} ${adjustedCurve}
+            L ${endX} ${endY}
+            m -5 -5
+            l 5 5
+            l -5 5`;
     }
 
     draw() {
@@ -97,7 +116,7 @@ export default class Arrow {
     }
 
     update() {
-        this.calculate_path();
+        this.calculatePath();
         this.element.setAttribute('d', this.path);
     }
 }
