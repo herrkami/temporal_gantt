@@ -401,6 +401,17 @@ export default class Tasks {
         }, this._tasks[0].end);
     }
 
+    /**
+     * Get the temporal extent of all tasks
+     * @returns {{ earliestStart: Temporal.Instant, latestEnd: Temporal.Instant }}
+     */
+    getExtent() {
+        return {
+            earliestStart: this.getOldestStart(),
+            latestEnd: this.getLatestEnd(),
+        };
+    }
+
     // Compatibility
 
     getDependencyMap() {

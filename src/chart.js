@@ -1,5 +1,5 @@
-import { createSVG } from './svg_utils';
-import { parseInstant, ensureInstant } from './temporal_utils';
+import { $, createSVG } from './svg_utils';
+import { parseInstant, ensureInstant, add, floor, isRelativeOffset, applyRelativeOffset, Temporal } from './temporal_utils';
 import Arrows from './arrows';
 import Bars from './bars';
 import Grid from './grid';
@@ -7,10 +7,16 @@ import Popup from './popup';
 import Viewport from './viewport';
 
 /**
- * Chart - Visual layer composition
+ * Chart - Visual layer composition and scroll/rendering policy
  *
- * Owns all visual components and rendering orchestration.
- * Contains the SVG element, layers, and visual managers.
+ * Owns:
+ * - All visual components and rendering orchestration (SVG, layers, visual managers)
+ * - renderedRange: { start, end } - the time range currently rendered in SVG
+ * - bounds: { min?, max? } - scroll limits (undefined = infinite scrolling)
+ * - Viewport: pure coordinate calculator
+ *
+ * The Chart decides what to render and manages scroll behavior.
+ * The Viewport only handles coordinate conversion.
  */
 export default class Chart {
     /**
@@ -36,12 +42,19 @@ export default class Chart {
         // SVG layers
         this.layers = {};
 
-        // Visual managers (initialized after wrapper setup)
+        // Visual managers (initialized in setup)
         this.viewport = null;
         this.grid = null;
         this.bars = null;
         this.arrows = null;
         this.popup = null;
+
+        // Rendered range - what time range is currently rendered in SVG
+        this.renderedRange = { start: null, end: null };
+
+        // Bounds configuration - scroll limits
+        this._boundsConfig = null;  // Raw config (may contain relative offsets)
+        this.bounds = { min: undefined, max: undefined };  // Resolved absolute bounds
 
         // Upper text elements for scroll tracking
         this.upperTexts = [];
@@ -102,23 +115,108 @@ export default class Chart {
         });
     }
 
-    /**
-     * Initialize visual managers (Bars, Arrows)
-     * Called after options and tasks are set up
-     */
-    initializeManagers() {
-        this.bars = new Bars(this.gantt);
-        this.arrows = new Arrows(this.gantt);
-    }
+    // =========================================================================
+    // CHART SETUP
+    // =========================================================================
 
     /**
-     * Set up viewport with current view mode configuration
-     * @param {Object} options - Viewport options
-     * @param {Object} options.visible - Visible time range {start, end}
+     * Set up all chart components
+     * @param {Object} options
+     * @param {Object} options.taskExtent - Task time extent {earliestStart, latestEnd}
      * @param {number} options.columnWidth - Column width in pixels
      * @param {number} options.stepInterval - Step interval value
      * @param {string} options.stepUnit - Step unit (day, hour, etc.)
-     * @param {Object} [options.bounds] - Optional bounds {min, max}
+     * @param {Object} [options.bounds] - Bounds config {min, max} or null for infinite
+     * @param {Object} options.viewMode - View mode configuration
+     */
+    setup(options) {
+        // Store step config for range computations
+        this._stepConfig = {
+            interval: options.stepInterval,
+            unit: options.stepUnit,
+            columnWidth: options.columnWidth,
+        };
+
+        // Set column width CSS variable (visual concern)
+        this.$container.style.setProperty(
+            '--gv-column-width',
+            options.columnWidth + 'px',
+        );
+
+        // Configure bounds
+        this.configureBounds(options.bounds);
+
+        // Resolve relative bounds from task extent
+        if (this.hasRelativeBounds() && options.taskExtent) {
+            this.updateBoundsFromTaskExtent(
+                options.taskExtent.earliestStart,
+                options.taskExtent.latestEnd
+            );
+        }
+
+        // Compute rendered range (Chart owns this computation)
+        this.computeRenderedRange(options.taskExtent);
+
+        // Set up viewport (pure coordinate calculator)
+        this.setupViewport({
+            origin: this.renderedRange.start,
+            columnWidth: options.columnWidth,
+            stepInterval: options.stepInterval,
+            stepUnit: options.stepUnit,
+        });
+
+        // Set up grid
+        this.setupGrid(options.viewMode);
+
+        // Initialize bars and arrows managers
+        if (!this.bars) {
+            this.bars = new Bars(this.gantt);
+        }
+        if (!this.arrows) {
+            this.arrows = new Arrows(this.gantt);
+        }
+    }
+
+    /**
+     * Compute the rendered range based on task extent and container size
+     * @param {Object} taskExtent - {earliestStart, latestEnd}
+     */
+    computeRenderedRange(taskExtent) {
+        const { interval, unit, columnWidth } = this._stepConfig;
+        const extendByUnits = this.gantt.config.extend_by_units || 2;
+
+        // Start a bit before the earliest task
+        const ganttStart = floor(taskExtent.earliestStart, unit);
+        this.renderedRange.start = add(ganttStart, -extendByUnits, unit);
+
+        // Compute end to fill container
+        const containerWidth = this.$container?.clientWidth || 0;
+        const columnsNeeded = containerWidth > 0
+            ? Math.ceil(containerWidth / columnWidth) + 1
+            : 30;
+        const rangeWidth = columnsNeeded * interval;
+        this.renderedRange.end = add(this.renderedRange.start, rangeWidth, unit);
+
+        // Ensure today is in range if today_button is enabled
+        if (this.gantt.options.today_button) {
+            const today = Temporal.Now.instant();
+            const bufferDate = add(today, columnsNeeded * interval, unit);
+            if (Temporal.Instant.compare(bufferDate, this.renderedRange.end) > 0) {
+                this.renderedRange.end = bufferDate;
+            }
+            if (Temporal.Instant.compare(today, this.renderedRange.start) < 0) {
+                this.renderedRange.start = floor(today, unit);
+            }
+        }
+    }
+
+    /**
+     * Set up viewport with scale parameters
+     * @param {Object} options
+     * @param {Temporal.Instant|string} options.origin - The instant at x=0
+     * @param {number} options.columnWidth - Pixels per step
+     * @param {number} options.stepInterval - Number of units per step
+     * @param {string} options.stepUnit - Unit type (day, hour, etc.)
      */
     setupViewport(options) {
         if (this.viewport) {
@@ -128,19 +226,26 @@ export default class Chart {
                 options.stepInterval,
                 options.stepUnit
             );
-            this.viewport.setVisible(options.visible.start, options.visible.end);
+            this.viewport.setOrigin(options.origin);
         } else {
             this.viewport = new Viewport(options);
         }
+    }
 
-        // Create or update Grid
+    /**
+     * Set up grid component
+     * @param {Object} viewMode - View mode configuration
+     */
+    setupGrid(viewMode) {
         if (!this.grid) {
             this.grid = new Grid({
-                viewport: this.viewport,
+                chart: this,
                 gantt: this.gantt,
             });
         }
-        this.grid.viewport = this.viewport;
+        if (viewMode) {
+            this.grid.setViewMode(viewMode);
+        }
     }
 
     /**
@@ -152,6 +257,156 @@ export default class Chart {
             this.grid.setViewMode(viewMode);
         }
     }
+
+    // =========================================================================
+    // BOUNDS MANAGEMENT
+    // =========================================================================
+
+    /**
+     * Configure bounds from options
+     * @param {Object|null} boundsConfig - Bounds configuration or null for infinite
+     */
+    configureBounds(boundsConfig) {
+        this._boundsConfig = boundsConfig || null;
+        this.bounds = { min: undefined, max: undefined };
+        this._initializeBounds();
+    }
+
+    /**
+     * Initialize bounds from config, resolving absolute bounds immediately
+     * @private
+     */
+    _initializeBounds() {
+        if (!this._boundsConfig) {
+            // null/undefined = infinite scrolling
+            this.bounds = { min: undefined, max: undefined };
+            return;
+        }
+
+        // Resolve absolute bounds now; relative bounds will be resolved later
+        if (this._boundsConfig.min !== undefined) {
+            if (!this._isRelativeBound(this._boundsConfig.min)) {
+                this.bounds.min = ensureInstant(this._boundsConfig.min);
+            }
+        }
+        if (this._boundsConfig.max !== undefined) {
+            if (!this._isRelativeBound(this._boundsConfig.max)) {
+                this.bounds.max = ensureInstant(this._boundsConfig.max);
+            }
+        }
+    }
+
+    /**
+     * Check if a bound value is relative
+     * @private
+     */
+    _isRelativeBound(value) {
+        return typeof value === 'string' && isRelativeOffset(value);
+    }
+
+    /**
+     * Check if bounds have any relative components
+     * @returns {boolean}
+     */
+    hasRelativeBounds() {
+        if (!this._boundsConfig) return false;
+        return this._isRelativeBound(this._boundsConfig.min) ||
+            this._isRelativeBound(this._boundsConfig.max);
+    }
+
+    /**
+     * Update absolute bounds from task extent (resolves relative bounds)
+     * @param {Temporal.Instant} earliestStart - Earliest task start
+     * @param {Temporal.Instant} latestEnd - Latest task end
+     */
+    updateBoundsFromTaskExtent(earliestStart, latestEnd) {
+        if (!this._boundsConfig) return;
+
+        if (this._isRelativeBound(this._boundsConfig.min)) {
+            this.bounds.min = applyRelativeOffset(this._boundsConfig.min, earliestStart);
+        }
+        if (this._isRelativeBound(this._boundsConfig.max)) {
+            this.bounds.max = applyRelativeOffset(this._boundsConfig.max, latestEnd);
+        }
+    }
+
+    /**
+     * Check if bounds are infinite (allow unlimited scrolling)
+     * @returns {boolean}
+     */
+    isInfinite() {
+        return this._boundsConfig === null || this._boundsConfig === undefined;
+    }
+
+    /**
+     * Check if scrolling is allowed in a direction
+     * @param {string} direction - 'past' or 'future'
+     * @returns {boolean}
+     */
+    canScroll(direction) {
+        if (direction === 'past') {
+            return this.bounds.min === undefined ||
+                Temporal.Instant.compare(this.renderedRange.start, this.bounds.min) > 0;
+        } else {
+            return this.bounds.max === undefined ||
+                Temporal.Instant.compare(this.renderedRange.end, this.bounds.max) < 0;
+        }
+    }
+
+    // =========================================================================
+    // RENDERED RANGE MANAGEMENT
+    // =========================================================================
+
+    /**
+     * Set the rendered range
+     * @param {Temporal.Instant|string} start
+     * @param {Temporal.Instant|string} end
+     */
+    setRenderedRange(start, end) {
+        this.renderedRange.start = ensureInstant(start);
+        this.renderedRange.end = ensureInstant(end);
+    }
+
+    /**
+     * Extend the rendered range in a direction
+     * @param {string} direction - 'past' or 'future'
+     * @param {number} amount - Number of step units to extend
+     * @param {string} unit - Time unit (day, hour, etc.)
+     */
+    extendRenderedRange(direction, amount, unit) {
+        if (direction === 'past') {
+            // Extend into the past
+            if (this.bounds.min !== undefined) {
+                this.bounds.min = add(this.bounds.min, -amount, unit);
+            }
+            this.renderedRange.start = add(this.renderedRange.start, -amount, unit);
+            // Update viewport origin to match new start
+            if (this.viewport) {
+                this.viewport.setOrigin(this.renderedRange.start);
+            }
+        } else if (direction === 'future') {
+            // Extend into the future
+            if (this.bounds.max !== undefined) {
+                this.bounds.max = add(this.bounds.max, amount, unit);
+            }
+            this.renderedRange.end = add(this.renderedRange.end, amount, unit);
+        }
+    }
+
+    /**
+     * Get the pixel width of the rendered range
+     * @returns {number}
+     */
+    getRenderedWidth() {
+        if (!this.viewport || !this.renderedRange.start || !this.renderedRange.end) {
+            return 0;
+        }
+        return this.viewport.rangeToPixels(this.renderedRange.start, this.renderedRange.end);
+    }
+
+    // =========================================================================
+    // SVG LAYERS
+    // =========================================================================
 
     /**
      * Set up SVG layers for rendering
@@ -188,6 +443,7 @@ export default class Chart {
         this.$header?.remove?.();
         this.$side_header?.remove?.();
         this.$current_highlight?.remove?.();
+        this.$current_ball_highlight?.remove?.();
         this.$extras?.remove?.();
         this.popup?.hide?.();
     }
@@ -221,11 +477,10 @@ export default class Chart {
     }
 
     /**
-     * Render the side header with view mode select and today button
+     * Render the side header container
+     * The actual controls (view mode select, today button) are rendered by Gantt
      */
     renderSideHeader() {
-        const gantt = this.gantt;
-
         this.$side_header = this.createElement({ classes: 'side-header' });
         this.$upper_header = this.$container.querySelector('.upper-header');
         this.$lower_header = this.$container.querySelector('.lower-header');
@@ -233,45 +488,6 @@ export default class Chart {
 
         if (this.$upper_header) {
             this.$upper_header.prepend(this.$side_header);
-        }
-
-        // Create view mode change select
-        if (gantt.options.view_mode_select) {
-            const $select = document.createElement('select');
-            $select.classList.add('viewmode-select');
-
-            const $el = document.createElement('option');
-            $el.selected = true;
-            $el.disabled = true;
-            $el.textContent = 'Mode';
-            $select.appendChild($el);
-
-            for (const mode of gantt.options.view_modes) {
-                const $option = document.createElement('option');
-                $option.value = mode.name;
-                $option.textContent = mode.name;
-                if (mode.name === gantt.config.view_mode.name)
-                    $option.selected = true;
-                $select.appendChild($option);
-            }
-
-            $select.addEventListener(
-                'change',
-                function () {
-                    gantt.change_view_mode($select.value, true);
-                }
-            );
-            this.$side_header.appendChild($select);
-        }
-
-        // Create today button
-        if (gantt.options.today_button) {
-            const $today_button = document.createElement('button');
-            $today_button.classList.add('today-button');
-            $today_button.textContent = 'Today';
-            $today_button.onclick = () => this.scrollToCurrent();
-            this.$side_header.prepend($today_button);
-            this.$today_button = $today_button;
         }
     }
 
@@ -295,16 +511,16 @@ export default class Chart {
     setScrollPosition(date) {
         const gantt = this.gantt;
 
-        if (gantt.options.infinite_padding && (!date || date === 'start')) {
+        if (this.isInfinite() && (!date || date === 'start')) {
             const [min_start] = this.getStartEndPositions();
             this.$container.scrollLeft = min_start;
             return;
         }
 
         if (!date || date === 'start') {
-            date = gantt.grid.start;
+            date = this.renderedRange.start;
         } else if (date === 'end') {
-            date = gantt.grid.end;
+            date = this.renderedRange.end;
         } else if (date === 'today') {
             return this.scrollToCurrent();
         } else if (typeof date === 'string') {
@@ -440,6 +656,139 @@ export default class Chart {
     }
 
     /**
+     * Bind click events to grid elements (unselect on click)
+     */
+    bindGridClick() {
+        $.on(
+            this.$container,
+            'click',
+            '.grid-row, .grid-header, .ignored-bar, .holiday-highlight',
+            () => {
+                this.unselectAll();
+                this.hidePopup();
+            },
+        );
+    }
+
+    /**
+     * Bind infinite scroll behavior
+     * Extends the rendered range when scrolling near edges
+     * @param {Function} renderCallback - Called after extending range
+     */
+    bindInfiniteScroll(renderCallback) {
+        const gantt = this.gantt;
+        let extending = false;
+
+        const getTriggerDistance = () => this.$container.clientWidth * 2;
+        const getExtendUnits = () =>
+            Math.ceil((this.$container.clientWidth * 3) / gantt.config.step.column_width);
+
+        $.on(this.$container, 'mousewheel', (e) => {
+            if (extending) return;
+
+            const scrollLeft = e.currentTarget.scrollLeft;
+            const scrollWidth = e.currentTarget.scrollWidth;
+            const clientWidth = e.currentTarget.clientWidth;
+            const triggerDistance = getTriggerDistance();
+
+            if (scrollLeft <= triggerDistance) {
+                extending = true;
+                const extendUnits = getExtendUnits();
+                const dateAtScroll = this.viewport.xToDate(scrollLeft);
+
+                this.extendRenderedRange('past', extendUnits, gantt.config.step.unit);
+                renderCallback(true);
+                e.currentTarget.scrollLeft = this.viewport.dateToX(dateAtScroll);
+                setTimeout(() => (extending = false), 100);
+                return;
+            }
+
+            const remainingRight = scrollWidth - (scrollLeft + clientWidth);
+            if (remainingRight <= triggerDistance) {
+                extending = true;
+                const extendUnits = getExtendUnits();
+                const dateAtScroll = this.viewport.xToDate(scrollLeft);
+
+                this.extendRenderedRange('future', extendUnits, gantt.config.step.unit);
+                renderCallback(true);
+                e.currentTarget.scrollLeft = this.viewport.dateToX(dateAtScroll);
+                setTimeout(() => (extending = false), 100);
+            }
+        });
+    }
+
+    /**
+     * Bind scroll event handling (header tracking, adjust button, label movement)
+     */
+    bindScrollEvents() {
+        const gantt = this.gantt;
+        let lastScrollLeft = 0;
+
+        $.on(this.$container, 'scroll', (e) => {
+            const scrollLeft = e.currentTarget.scrollLeft;
+            const dx = scrollLeft - lastScrollLeft;
+
+            // Update current upper text highlight
+            const currentDate = this.viewport.xToDate(scrollLeft);
+            let currentUpper = gantt.config.view_mode.upper_text(
+                currentDate,
+                null,
+                gantt.options.language,
+            );
+            let $el = this.upperTexts.find((el) => el.textContent === currentUpper);
+
+            if ($el) {
+                const nextDate = this.viewport.xToDate(scrollLeft + $el.clientWidth);
+                currentUpper = gantt.config.view_mode.upper_text(
+                    nextDate,
+                    null,
+                    gantt.options.language,
+                );
+                $el = this.upperTexts.find((el) => el.textContent === currentUpper);
+            }
+
+            if ($el && $el !== this.$current) {
+                if (this.$current) {
+                    this.$current.classList.remove('current-upper');
+                }
+                $el.classList.add('current-upper');
+                this.$current = $el;
+            }
+
+            lastScrollLeft = scrollLeft;
+
+            // Update adjust button visibility
+            const [minStart, maxStart, maxEnd] = this.getStartEndPositions();
+
+            if (scrollLeft > maxEnd + 100) {
+                this.$adjust.innerHTML = '&larr;';
+                this.$adjust.classList.remove('hide');
+                this.$adjust.onclick = () => {
+                    this.$container.scrollTo({ left: maxStart, behavior: 'smooth' });
+                };
+            } else if (scrollLeft + e.currentTarget.offsetWidth < minStart - 100) {
+                this.$adjust.innerHTML = '&rarr;';
+                this.$adjust.classList.remove('hide');
+                this.$adjust.onclick = () => {
+                    this.$container.scrollTo({ left: minStart, behavior: 'smooth' });
+                };
+            } else {
+                this.$adjust.classList.add('hide');
+            }
+
+            // Auto-move labels on scroll
+            if (dx && gantt.options.auto_move_label) {
+                for (const bar of this.bars.getAll()) {
+                    bar.updateLabelPositionOnHorizontalScroll({
+                        x: dx,
+                        sx: scrollLeft,
+                    });
+                }
+            }
+        });
+    }
+
+    /**
      * Get bar by task ID
      * @param {string} id - Task UID
      * @returns {Bar|undefined}
@@ -462,15 +811,6 @@ export default class Chart {
      */
     getAllArrows() {
         return this.arrows.getAll();
-    }
-
-    /**
-     * Extend bounds for infinite scroll
-     * @param {string} direction - 'past' or 'future'
-     * @param {number} units - Number of units to extend
-     */
-    extendBounds(direction, units) {
-        this.viewport.extendBounds(direction, units);
     }
 
     /**

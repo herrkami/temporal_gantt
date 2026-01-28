@@ -151,7 +151,7 @@ export default class Bar {
         }
 
         // Date highlight element in header
-        this.$date_highlight = this.gantt.create_el({
+        this.$date_highlight = this.gantt.chart.createElement({
             classes: `date-range-highlight hide highlight-${this.task.uid}`,
             width: this.getWidth(),
             left: this.getX(),
@@ -289,11 +289,11 @@ export default class Bar {
     // ─────────────────────────────────────────────────────────────────────────
 
     getX() {
-        return this.gantt.viewport.dateToX(this.task.start);
+        return this.gantt.chart.viewport.dateToX(this.task.start);
     }
 
     getWidth() {
-        return this.gantt.viewport.dateToX(this.task.end) - this.getX();
+        return this.gantt.chart.viewport.dateToX(this.task.end) - this.getX();
     }
 
     getY() {
@@ -320,7 +320,7 @@ export default class Bar {
         if (x !== null) {
             // Validate against dependencies
             const depXs = this.task.dependencies.map((dep) => {
-                const depBar = this.gantt.get_bar(dep);
+                const depBar = this.gantt.getBar(dep);
                 return depBar ? depBar.$bar.getX() : -Infinity;
             });
             const validX = depXs.every((depX) => x >= depX);
@@ -388,7 +388,7 @@ export default class Bar {
     }
 
     updateLabelPositionOnHorizontalScroll({ x, sx }) {
-        const container = this.gantt.$container;
+        const container = this.gantt.chart.$container;
         const label = this.group.querySelector('.bar-label');
         const img = this.group.querySelector('.bar-img');
         const imgMask = this.bar_group.querySelector('.img_mask');
@@ -455,7 +455,7 @@ export default class Bar {
 
         // Hover event
         $.on(this.group, 'mouseover', (e) => {
-            this.gantt.trigger_event('hover', [this.task, e.screenX, e.screenY, e]);
+            this.gantt.triggerEvent('hover', [this.task, e.screenX, e.screenY, e]);
         });
 
         // Click popup
@@ -467,7 +467,7 @@ export default class Bar {
                     if (cx > posX - 1 && cx < posX + 1) return;
                     if (this.gantt.bar_being_dragged) return;
                 }
-                this.gantt.show_popup({
+                this.gantt.showPopup({
                     x: e.offsetX || e.layerX,
                     y: e.offsetY || e.layerY,
                     task: this.task,
@@ -481,38 +481,38 @@ export default class Bar {
         $.on(this.group, 'mouseenter', (e) => {
             timeout = setTimeout(() => {
                 if (this.gantt.options.popup_on === 'hover') {
-                    this.gantt.show_popup({
+                    this.gantt.showPopup({
                         x: e.offsetX || e.layerX,
                         y: e.offsetY || e.layerY,
                         task: this.task,
                         target: this.$bar,
                     });
                 }
-                this.gantt.$container.querySelector(`.highlight-${taskId}`)?.classList.remove('hide');
+                this.gantt.chart.$container.querySelector(`.highlight-${taskId}`)?.classList.remove('hide');
             }, 200);
         });
 
         $.on(this.group, 'mouseleave', () => {
             clearTimeout(timeout);
             if (this.gantt.options.popup_on === 'hover') {
-                this.gantt.popup?.hide?.();
+                this.gantt.chart.popup?.hide?.();
             }
-            this.gantt.$container.querySelector(`.highlight-${taskId}`)?.classList.add('hide');
+            this.gantt.chart.$container.querySelector(`.highlight-${taskId}`)?.classList.add('hide');
         });
 
         // Click event
         $.on(this.group, 'click', () => {
-            this.gantt.trigger_event('click', [this.task]);
+            this.gantt.triggerEvent('click', [this.task]);
         });
 
         // Double click event
         $.on(this.group, 'dblclick', () => {
             if (this.action_completed) return;
             this.group.classList.remove('active');
-            if (this.gantt.popup) {
-                this.gantt.popup.parent.classList.remove('hide');
+            if (this.gantt.chart.popup) {
+                this.gantt.chart.popup.parent.classList.remove('hide');
             }
-            this.gantt.trigger_event('double_click', [this.task]);
+            this.gantt.triggerEvent('double_click', [this.task]);
         });
 
         // Touch double tap
@@ -529,10 +529,10 @@ export default class Bar {
 
             if (this.action_completed) return;
             this.group.classList.remove('active');
-            if (this.gantt.popup) {
-                this.gantt.popup.parent.classList.remove('hide');
+            if (this.gantt.chart.popup) {
+                this.gantt.chart.popup.parent.classList.remove('hide');
             }
-            this.gantt.trigger_event('double_click', [this.task]);
+            this.gantt.triggerEvent('double_click', [this.task]);
         });
     }
 
@@ -545,8 +545,8 @@ export default class Bar {
      * @returns {{ newStart: Temporal.Instant, newEnd: Temporal.Instant }}
      */
     computeStartEndFromPosition() {
-        const newStart = this.gantt.viewport.xToDate(this.$bar.getX());
-        const newEnd = this.gantt.viewport.xToDate(this.$bar.getEndX());
+        const newStart = this.gantt.chart.viewport.xToDate(this.$bar.getX());
+        const newEnd = this.gantt.chart.viewport.xToDate(this.$bar.getEndX());
         return { newStart, newEnd };
     }
 

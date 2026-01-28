@@ -255,12 +255,13 @@ export function floor(instant, scale) {
         case 'month':
             truncated = pdt.with({ day: 1, hour: 0, minute: 0, second: 0, millisecond: 0 });
             break;
-        case 'week':
+        case 'week': {
             // Get to start of week (assuming Monday is first day)
             const dayOfWeek = pdt.dayOfWeek; // 1 = Monday, 7 = Sunday
             const daysToSubtract = dayOfWeek - 1;
             truncated = pdt.subtract({ days: daysToSubtract }).with({ hour: 0, minute: 0, second: 0, millisecond: 0 });
             break;
+        }
         case 'day':
             truncated = pdt.with({ hour: 0, minute: 0, second: 0, millisecond: 0 });
             break;
@@ -495,6 +496,34 @@ export function convertToUnit(period, unit) {
         unit,
         relativeTo: Temporal.Now.plainDateISO(),
     });
+}
+
+/**
+ * Check if a string represents a relative time offset (starts with '+' or '-')
+ * @param {string} str - Time string like '-2d', '+5d', or '2024-01-01'
+ * @returns {boolean}
+ */
+export function isRelativeOffset(str) {
+    if (typeof str !== 'string') return false;
+    return str.startsWith('+') || str.startsWith('-');
+}
+
+/**
+ * Apply a relative offset to a reference instant, or parse as absolute
+ * @param {string} offsetOrAbsolute - Relative offset like '-2d', '+5d', or absolute date '2024-01-01'
+ * @param {Temporal.Instant} reference - Reference instant (used only if offsetOrAbsolute is relative)
+ * @returns {Temporal.Instant}
+ */
+export function applyRelativeOffset(offsetOrAbsolute, reference) {
+    if (!isRelativeOffset(offsetOrAbsolute)) {
+        return ensureInstant(offsetOrAbsolute);
+    }
+
+    const sign = offsetOrAbsolute.startsWith('-') ? -1 : 1;
+    const durationStr = offsetOrAbsolute.slice(1); // Remove leading +/-
+    const { value, unit } = parseDurationString(durationStr);
+
+    return add(reference, sign * value, unit);
 }
 
 // Export Temporal for direct access if needed

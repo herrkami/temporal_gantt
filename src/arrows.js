@@ -26,11 +26,11 @@ export default class Arrows {
 
         for (const task of this.gantt.tasks) {
             for (const depId of task.dependencies) {
-                const dependency = this.gantt.taskStore.get(depId);
+                const dependency = this.gantt.tasks.get(depId);
                 if (!dependency) continue;
 
-                const fromBar = this.gantt.barStore.get(depId);
-                const toBar = this.gantt.barStore.get(task.uid);
+                const fromBar = this.gantt.chart.bars.get(depId);
+                const toBar = this.gantt.chart.bars.get(task.uid);
                 if (!fromBar || !toBar) continue;
 
                 const arrow = new Arrow(this.gantt, fromBar, toBar);
@@ -54,7 +54,7 @@ export default class Arrows {
     }
 
     _mapArrowsToBars() {
-        for (const bar of this.gantt.barStore.getAll()) {
+        for (const bar of this.gantt.chart.bars.getAll()) {
             bar.arrows = this._arrows.filter((arrow) => {
                 return (
                     arrow.from_task.task.uid === bar.task.uid ||

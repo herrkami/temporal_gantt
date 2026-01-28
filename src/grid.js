@@ -24,11 +24,11 @@ import { $, createSVG } from './svg_utils';
 export default class Grid {
     /**
      * @param {Object} options
-     * @param {Viewport} options.viewport - Viewport instance for positioning
+     * @param {Chart} options.chart - Chart instance (owns viewport and renderedRange)
      * @param {Gantt} options.gantt - Gantt instance for config and predicates
      */
     constructor(options) {
-        this.viewport = options.viewport;
+        this.chart = options.chart;
         this.gantt = options.gantt;
 
         // Step configuration (visual grid rhythm)
@@ -104,7 +104,7 @@ export default class Grid {
         if (!upper) {
             this.headerFormat.upper = () => '';
         } else if (typeof upper === 'string') {
-            this.headerFormat.upper = (instant, lastInstant) =>
+            this.headerFormat.upper = (instant, _lastInstant) =>
                 format(instant, upper, lang);
         } else {
             this.headerFormat.upper = (instant, lastInstant) =>
@@ -114,7 +114,7 @@ export default class Grid {
         if (!lower) {
             this.headerFormat.lower = () => '';
         } else if (typeof lower === 'string') {
-            this.headerFormat.lower = (instant, lastInstant) =>
+            this.headerFormat.lower = (instant, _lastInstant) =>
                 format(instant, lower, lang);
         } else {
             this.headerFormat.lower = (instant, lastInstant) =>
@@ -128,8 +128,8 @@ export default class Grid {
      * @returns {Array<Temporal.Instant>}
      */
     getDates() {
-        const start = this.gantt.grid.start;
-        const end = this.gantt.grid.end;
+        const start = this.chart.renderedRange.start;
+        const end = this.chart.renderedRange.end;
         const cacheKey = `${start.epochMilliseconds}-${end.epochMilliseconds}-${this.viewMode?.step}`;
 
         if (this._cachedDates && this._cacheKey === cacheKey) {
@@ -159,7 +159,7 @@ export default class Grid {
         const dates = this.getDates();
         let lastDateInfo = null;
 
-        return dates.map((instant, i) => {
+        return dates.map((instant) => {
             const info = this._getDateInfo(instant, lastDateInfo);
             lastDateInfo = info;
             return info;
@@ -231,10 +231,10 @@ export default class Grid {
             width: gridWidth,
             height: gridHeight,
             class: 'grid-background',
-            append_to: this.gantt.$svg,
+            append_to: this.chart.$svg,
         });
 
-        $.attr(this.gantt.$svg, {
+        $.attr(this.chart.$svg, {
             height: gridHeight,
             width: '100%',
         });
@@ -468,8 +468,8 @@ export default class Grid {
             if (typeof checkHighlight !== 'function') continue;
 
             // Iterate through days
-            let currentPdt = toPlainDateTime(gantt.grid.start);
-            const endPdt = toPlainDateTime(gantt.grid.end);
+            let currentPdt = toPlainDateTime(this.chart.renderedRange.start);
+            const endPdt = toPlainDateTime(this.chart.renderedRange.end);
 
             while (Temporal.PlainDateTime.compare(currentPdt, endPdt) <= 0) {
                 const d = toInstant(currentPdt);
@@ -480,9 +480,9 @@ export default class Grid {
                 }
 
                 if (checkHighlight(d) || (extraFunc && extraFunc(d))) {
-                    const x = this.viewport.dateToX(d);
+                    const x = this.chart.viewport.dateToX(d);
                     const nextDay = add(d, 1, 'day');
-                    const nextX = this.viewport.dateToX(nextDay);
+                    const nextX = this.chart.viewport.dateToX(nextDay);
                     const width = nextX - x;
                     const height = this.gridHeight - headerHeight;
                     const dFormatted = format(d, 'YYYY-MM-DD', gantt.options.language)
@@ -535,8 +535,8 @@ export default class Grid {
         </pattern>`;
 
         const oneDay = Temporal.Duration.from({ days: 1 });
-        let currentPdt = toPlainDateTime(gantt.grid.start);
-        const endPdt = toPlainDateTime(gantt.grid.end);
+        let currentPdt = toPlainDateTime(this.chart.renderedRange.start);
+        const endPdt = toPlainDateTime(this.chart.renderedRange.end);
 
         while (Temporal.PlainDateTime.compare(currentPdt, endPdt) <= 0) {
             const d = toInstant(currentPdt);
@@ -546,12 +546,12 @@ export default class Grid {
                 continue;
             }
 
-            const x = this.viewport.dateToX(d);
+            const x = this.chart.viewport.dateToX(d);
             gantt.config.ignored_positions.push(x);
 
             // Calculate width based on one day's span in current view
             const nextDay = add(d, 1, 'day');
-            const nextX = this.viewport.dateToX(nextDay);
+            const nextX = this.chart.viewport.dateToX(nextDay);
             const width = nextX - x;
 
             createSVG('rect', {
@@ -561,7 +561,7 @@ export default class Grid {
                 height,
                 class: 'ignored-bar',
                 style: 'fill: url(#diagonalHatch);',
-                append_to: gantt.$svg,
+                append_to: this.chart.$svg,
             });
 
             currentPdt = currentPdt.add(oneDay);
@@ -580,13 +580,14 @@ export default class Grid {
         const res = this.getClosestDate();
         if (!res) return;
 
-        const [_, el] = res;
+        const [, el] = res;
         el.classList.add('current-date-highlight');
 
         const now = Temporal.Now.instant();
-        const left = this.viewport.dateToX(now);
+        const left = this.chart.viewport.dateToX(now);
 
-        gantt.$current_highlight = this._createElement({
+        // Store on chart for proper cleanup in chart.clear()
+        gantt.chart.$current_highlight = this._createElement({
             top: headerHeight,
             left,
             height: this.gridHeight - headerHeight,
@@ -594,7 +595,7 @@ export default class Grid {
             appendTo: this.$container,
         });
 
-        gantt.$current_ball_highlight = this._createElement({
+        gantt.chart.$current_ball_highlight = this._createElement({
             top: headerHeight - 6,
             left: left - 2.5,
             width: 6,
@@ -612,8 +613,8 @@ export default class Grid {
         const gantt = this.gantt;
         const now = Temporal.Now.instant();
 
-        if (Temporal.Instant.compare(now, gantt.grid.start) < 0 ||
-            Temporal.Instant.compare(now, gantt.grid.end) > 0) {
+        if (Temporal.Instant.compare(now, this.chart.renderedRange.start) < 0 ||
+            Temporal.Instant.compare(now, this.chart.renderedRange.end) > 0) {
             return null;
         }
 
@@ -670,6 +671,33 @@ export default class Grid {
      */
     _sanitize(s) {
         return s.replaceAll(' ', '_').replaceAll(':', '_').replaceAll('.', '_');
+    }
+
+    /**
+     * Bind hover events to holiday labels
+     * Shows the label on hover with a short delay
+     */
+    bindHolidayLabels() {
+        const $highlights = this.$container.querySelectorAll('.holiday-highlight');
+        for (let h of $highlights) {
+            const label = this.$container.querySelector(
+                '.label_' + h.classList[1],
+            );
+            if (!label) continue;
+            let timeout;
+            h.onmouseenter = (e) => {
+                timeout = setTimeout(() => {
+                    label.classList.add('show');
+                    label.style.left = (e.offsetX || e.layerX) + 'px';
+                    label.style.top = (e.offsetY || e.layerY) + 'px';
+                }, 300);
+            };
+
+            h.onmouseleave = () => {
+                clearTimeout(timeout);
+                label.classList.remove('show');
+            };
+        }
     }
 
     /**
