@@ -5,7 +5,7 @@ import Bar from './bar';
  * Bars - Collection manager for Bar objects
  *
  * Manages bar rendering, lookup, and drag/resize interactions.
- * Visual layer - delegates snapping and task updates to Gantt.
+ * Visual layer - delegates snapping and task updates to Scheduler.
  */
 export default class Bars {
     /**
@@ -158,11 +158,8 @@ export default class Bars {
         // Hide popup during drag
         gantt.hidePopup();
 
-        // Collect affected bars (parent + dependents if move_dependencies)
-        let barIds = [parentBarId];
-        if (gantt.options.move_dependencies) {
-            barIds = [parentBarId, ...gantt.getAllDependentTasks(parentBarId)];
-        }
+        // Collect affected bars (Scheduler determines dependency policy)
+        const barIds = gantt.scheduler.getAffectedTaskIds(parentBarId);
         const bars = barIds.map((id) => this.get(id)).filter(Boolean);
 
         // Store initial positions
@@ -205,8 +202,8 @@ export default class Bars {
 
         if (!this._dragState.dragging) return;
 
-        // Get snapped delta (Scheduler territory - delegated to Gantt)
-        const dx = gantt.getSnapPosition(rawDx);
+        // Get snapped delta from Scheduler
+        const dx = gantt.scheduler.getSnapPosition(rawDx);
         gantt.hidePopup();
 
         // Update each affected bar's visual position
@@ -255,11 +252,11 @@ export default class Bars {
             const $bar = bar.$bar;
             if (!$bar.finaldx) continue;
 
-            // Compute new dates from visual position (Scheduler territory)
+            // Compute new dates from visual position
             const { newStart, newEnd } = bar.computeStartEndFromPosition();
 
-            // Delegate task update to Gantt
-            gantt.commitBarDateChange(bar, newStart, newEnd);
+            // Commit task update via Scheduler
+            gantt.scheduler.commitDateChange(bar.task, newStart, newEnd);
 
             bar.setActionCompleted();
         }
@@ -323,8 +320,8 @@ export default class Bars {
             // Compute new progress from visual position
             const newProgress = bar.computeProgressFromPosition();
 
-            // Delegate task update to Gantt
-            gantt.commitBarProgressChange(bar, newProgress);
+            // Commit task update via Scheduler
+            gantt.scheduler.commitProgressChange(bar.task, newProgress);
 
             bar.setActionCompleted();
             progressState = null;

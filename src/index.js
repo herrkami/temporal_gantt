@@ -1,13 +1,11 @@
 import {
     ensureInstant,
     toPlainDateTime,
-    Temporal,
-    parseDuration,
     parseDurationString,
-    add,
 } from './temporal_utils';
 
 import Chart from './chart';
+import Scheduler from './scheduler';
 import Tasks from './tasks';
 
 import { DEFAULT_OPTIONS, DEFAULT_VIEW_MODES } from './defaults';
@@ -20,14 +18,13 @@ import './styles/gantt.css';
  * Coordinates between:
  * - Tasks: data layer (task storage and manipulation)
  * - Chart: visual layer (SVG rendering and DOM management)
- *
- * Also contains scheduler-territory code (snapping, date computation)
- * which will be extracted to a dedicated Scheduler class in Phase 10.
+ * - Scheduler: computation layer (snapping, task mutation, dependency resolution)
  */
 export default class Gantt {
     constructor(wrapper, tasks, options) {
         this.config = {};
         this.tasks = new Tasks();
+        this.scheduler = new Scheduler(this);
 
         this.setupOptions(options);
         this.setupChart(wrapper);
@@ -335,84 +332,6 @@ export default class Gantt {
 
     getClosestGridDate() {
         return this.chart.getClosestGridDate();
-    }
-
-
-    // =========================================================================
-    // SCHEDULER-TERRITORY: Task modification callbacks
-    // Called by Bars after drag/resize operations complete.
-    // Will be extracted to Scheduler in Phase 10.
-    // =========================================================================
-
-    /**
-     * Commit a bar's date change to the underlying task
-     * @param {Bar} bar - The bar that was modified
-     * @param {Temporal.Instant} newStart - New start date
-     * @param {Temporal.Instant} newEnd - New end date
-     */
-    commitBarDateChange(bar, newStart, newEnd) {
-        const changed =
-            Temporal.Instant.compare(bar.task.start, newStart) !== 0 ||
-            Temporal.Instant.compare(bar.task.end, newEnd) !== 0;
-
-        if (changed) {
-            bar.task.start = newStart;
-            bar.task.end = newEnd;
-            this.triggerEvent('date_change', [
-                bar.task,
-                newStart,
-                add(newEnd, -1, 'second'),
-            ]);
-        }
-    }
-
-    /**
-     * Commit a bar's progress change to the underlying task
-     * @param {Bar} bar - The bar that was modified
-     * @param {number} newProgress - New progress percentage (0-100)
-     */
-    commitBarProgressChange(bar, newProgress) {
-        bar.task.progress = newProgress;
-        this.triggerEvent('progress_change', [bar.task, newProgress]);
-    }
-
-    // =========================================================================
-    // SCHEDULER-TERRITORY CODE
-    // The following methods handle temporal calculations and snapping logic.
-    // They will be extracted to a dedicated Scheduler class in Phase 10.
-    // =========================================================================
-
-    /**
-     * Get all tasks that transitively depend on the given task
-     * @param {string} taskId - Task ID
-     * @returns {string[]} Array of dependent task IDs
-     */
-    getAllDependentTasks(taskId) {
-        return this.tasks.getAllDependentIds(taskId);
-    }
-
-    /**
-     * Calculate snap position for drag/resize operations
-     * @param {number} dx - Raw pixel delta
-     * @returns {number} Snapped pixel delta
-     */
-    getSnapPosition(dx) {
-        const step_duration = parseDuration(this.config.view_mode.step);
-        const default_snap =
-            this.options.snap_at || this.config.view_mode.snap_at || '1d';
-
-        let snap_duration = step_duration;
-        if (default_snap !== 'unit') {
-            snap_duration = parseDuration(default_snap);
-        }
-
-        const relativeTo = Temporal.Now.plainDateISO();
-        const step_ms = step_duration.total({ unit: 'millisecond', relativeTo });
-        const snap_ms = snap_duration.total({ unit: 'millisecond', relativeTo });
-
-        const snap_pixels = (snap_ms / step_ms) * this.config.step.column_width;
-
-        return Math.round(dx / snap_pixels) * snap_pixels;
     }
 
     // =========================================================================
