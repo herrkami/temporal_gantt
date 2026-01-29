@@ -24,7 +24,7 @@ export default class Arrows {
     render(layer) {
         this.clear();
 
-        for (const task of this.gantt.tasks) {
+        for (const task of this.gantt.tasks.getAll()) {
             for (const depId of task.dependencies) {
                 const dependency = this.gantt.tasks.get(depId);
                 if (!dependency) continue;

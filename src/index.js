@@ -117,9 +117,6 @@ export default class Gantt {
 
     loadTaskList(task_list) {
         this.tasks.load(task_list);
-        // Alias for backward compatibility and convenience
-        this.tasks = this.tasks.getAll();
-        this.dependency_map = this.tasks.getDependencyMap();
     }
 
     refresh(tasks) {
@@ -148,8 +145,6 @@ export default class Gantt {
     addTask(taskData) {
         const task = this.tasks.add(taskData);
         if (task) {
-            this.tasks = this.tasks.getAll();
-            this.dependency_map = this.tasks.getDependencyMap();
             this.render();
         }
         return task;
@@ -163,8 +158,6 @@ export default class Gantt {
     removeTask(id) {
         const removed = this.tasks.remove(id);
         if (removed) {
-            this.tasks = this.tasks.getAll();
-            this.dependency_map = this.tasks.getDependencyMap();
             this.render();
         }
         return removed;
@@ -319,7 +312,7 @@ export default class Gantt {
             const $todayButton = document.createElement('button');
             $todayButton.classList.add('today-button');
             $todayButton.textContent = 'Today';
-            $todayButton.onclick = () => this.scrollCurrent();
+            $todayButton.onclick = () => this.scrollToCurrent();
             $sideHeader.prepend($todayButton);
         }
     }
@@ -328,12 +321,12 @@ export default class Gantt {
         this.chart.setScrollPosition(date);
     }
 
-    scrollCurrent() {
+    scrollToCurrent() {
         this.chart.scrollToCurrent();
     }
 
-    getClosestDate() {
-        return this.chart.getClosestDate();
+    getClosestGridDate() {
+        return this.chart.getClosestGridDate();
     }
 
 

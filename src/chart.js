@@ -581,7 +581,7 @@ export default class Chart {
      * Scroll to the current date (today)
      */
     scrollToCurrent() {
-        const res = this.getClosestDate();
+        const res = this.getClosestGridDate();
         if (res) {
             this.setScrollPosition(res[0]);
         }
@@ -591,8 +591,8 @@ export default class Chart {
      * Get the closest date element to now
      * @returns {[Temporal.Instant, Element] | null}
      */
-    getClosestDate() {
-        return this.grid.getClosestDate();
+    getClosestGridDate() {
+        return this.grid.getClosestGridDate();
     }
 
     /**

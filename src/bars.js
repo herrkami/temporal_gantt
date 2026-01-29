@@ -28,7 +28,7 @@ export default class Bars {
     render(layer) {
         this.clear();
 
-        for (const task of this.gantt.tasks) {
+        for (const task of this.gantt.tasks.getAll()) {
             const bar = new Bar(this.gantt, task);
             layer.appendChild(bar.group);
             this._bars.push(bar);

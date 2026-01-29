@@ -577,7 +577,7 @@ export default class Grid {
         const headerHeight = gantt.options.lower_header_height +
                             gantt.options.upper_header_height + 10;
 
-        const res = this.getClosestDate();
+        const res = this.getClosestGridDate();
         if (!res) return;
 
         const [, el] = res;
@@ -609,7 +609,7 @@ export default class Grid {
      * Get the closest date element to now
      * @returns {[Temporal.Instant, Element] | null}
      */
-    getClosestDate() {
+    getClosestGridDate() {
         const gantt = this.gantt;
         const now = Temporal.Now.instant();
 
