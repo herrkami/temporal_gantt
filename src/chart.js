@@ -522,7 +522,7 @@ export default class Chart {
         } else if (date === 'end') {
             date = this.renderedRange.end;
         } else if (date === 'today') {
-            return this.scrollToCurrent();
+            return this.scrollToNow();
         } else if (typeof date === 'string') {
             date = parseInstant(date);
         }
@@ -580,7 +580,7 @@ export default class Chart {
     /**
      * Scroll to the current date (today)
      */
-    scrollToCurrent() {
+    scrollToNow() {
         const res = this.getClosestGridDate();
         if (res) {
             this.setScrollPosition(res[0]);

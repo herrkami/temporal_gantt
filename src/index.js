@@ -115,15 +115,6 @@ export default class Gantt {
         this.changeViewMode(undefined, true);
     }
 
-    loadTaskList(task_list) {
-        this.tasks.load(task_list);
-    }
-
-    refresh(tasks) {
-        this.loadTaskList(tasks);
-        this.changeViewMode();
-    }
-
     /**
      * Update an existing task
      * @param {string} id - Task ID
@@ -161,6 +152,23 @@ export default class Gantt {
             this.render();
         }
         return removed;
+    }
+
+    /**
+    * Load a new task list
+    * @param {Array} taskList - List of task specifications
+    */
+    loadTaskList(taskList) {
+        this.tasks.load(taskList);
+    }
+
+    /**
+     * Load a new task list and rebuild the chart
+     * @param {Array} taskList - List of task specifications
+     */
+    setTasks(taskList) {
+        this.loadTaskList(taskList);
+        this.changeViewMode();
     }
 
     /**
@@ -312,7 +320,7 @@ export default class Gantt {
             const $todayButton = document.createElement('button');
             $todayButton.classList.add('today-button');
             $todayButton.textContent = 'Today';
-            $todayButton.onclick = () => this.scrollToCurrent();
+            $todayButton.onclick = () => this.scrollToNow();
             $sideHeader.prepend($todayButton);
         }
     }
@@ -321,8 +329,8 @@ export default class Gantt {
         this.chart.setScrollPosition(date);
     }
 
-    scrollToCurrent() {
-        this.chart.scrollToCurrent();
+    scrollToNow() {
+        this.chart.scrollToNow();
     }
 
     getClosestGridDate() {
